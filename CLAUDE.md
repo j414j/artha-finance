@@ -41,5 +41,35 @@ Schema is in backend/migrations/. Never modify existing migration files.
 - Full stack: docker compose up --build
 - Run tests: cargo test (backend), npm test (frontend)
 
+## Reccomendations
+- Do not use high effort models for low cognition tasks, use them when planning architecture/solving complex issues. Spawn cheaper agents to do work that can be delegated.
+- Create test cases where possible, aim for high coverage in terms of source lines and edge cases both.
+- Follow idiomatic code guidelines, keep the code modularised and remember SOLID and DRY principles etc
+- When there is any doubt, ask the user. DO NOT MAKE ASSUMPTIONS unless it is obvious.
+
+## Implementation Plan
+Full phase-by-phase plan is in `docs/PLAN.md`. Phases at a glance:
+- **Phase 0** — Project skeleton (Docker, Vite, Axum, health check)
+- **Phase 1** — Auth + app shell + design system primitives
+- **Phase 2** — Accounts (balance sheet, allocation chart)
+- **Phase 3** — Transactions (CRUD, filters, CSV, splits)
+- **Phase 4** — Budget (monthly tracking, history, savings rate)
+- **Phase 5** — Investments (holdings, manual prices, P&L)
+- **Phase 6** — Goals (block funds, progress tracking)
+- **Phase 7** — Dashboard (aggregate charts, recent transactions)
+- **Phase 8** — Reports + Sankey (interactive cash flow diagram)
+- **Phase 9** — Mobile responsive + polish + tests + production Docker
+
+Key decisions: multi-user from Phase 1 (all tables have user_id), investment prices manual-only, no ticker bar, Sankey is interactive with real data.
+
 ## Current Status
-[Update this as you build — what's done, what's in progress]
+- [x] Phase 0 — complete
+- [ ] Phase 1 — not started
+- [ ] Phase 2 — not started
+- [ ] Phase 3 — not started
+- [ ] Phase 4 — not started
+- [ ] Phase 5 — not started
+- [ ] Phase 6 — not started
+- [ ] Phase 7 — not started
+- [ ] Phase 8 — not started
+- [ ] Phase 9 — not started

@@ -1,0 +1,2 @@
+-- Artha database initialisation
+-- Schema will be built up in subsequent phases (see docs/PLAN.md)

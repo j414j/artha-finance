@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #0a0c0f;
+  --bg2: #0f1215;
+  --bg3: #141820;
+  --bg4: #1c2230;
+  --border: #1e2535;
+  --border2: #252f42;
+  --text: #c8d4e8;
+  --text2: #7a8fb5;
+  --text3: #4a5878;
+  --accent: #f0a500;
+  --accent2: #e8860a;
+  --green: #00c896;
+  --green2: #009e78;
+  --red: #f04060;
+  --red2: #c02040;
+  --blue: #3a7fff;
+  --blue2: #2060dd;
+  --purple: #9060f0;
+  --cyan: #00b8d4;
+  --font-mono: 'IBM Plex Mono', monospace;
+  --font: 'IBM Plex Sans', sans-serif;
+  --font-cond: 'IBM Plex Sans Condensed', sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border2);
+}
