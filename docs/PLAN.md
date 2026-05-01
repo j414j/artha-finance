@@ -100,39 +100,102 @@ Add 3 accounts of different types → balance sheet renders correctly → net wo
 ---
 
 ## Phase 3: Transactions
-**Goal**: Log, browse, filter, and search all money movements.
+**Goal**: Log, browse, filter, search, split, export, and soft-delete all money movements while keeping account balances correct.
+
+### Key decisions
+- Transactions are owner-scoped by `user_id`; users can only touch transactions for accounts they own.
+- Transactions are never hard-deleted. Delete means `deleted_at = now`, audit entry written, and account balance effects reversed.
+- `accounts.balance_paise` remains the denormalized current balance for fast balance-sheet rendering. Transaction mutations update it inside the same DB transaction.
+- Each transaction stores the exact account balance deltas it applied in `transaction_account_effects`, so updates and soft deletes reverse the original effect exactly, including valuation updates.
+- Every create/update/delete/bulk mutation uses a database transaction and writes `audit_log`.
+- Phase 3 implements the ledger and UI. Recurring reminders/generation and CSV import are deferred until after the core ledger is stable.
+- Investment buy/sell/dividend transaction types can be recorded in Phase 3, but holding/price/P&L effects remain Phase 5. Investment buy/sell are record-only for balances until holdings exist; dividends increase the investment account cash/balance.
 
 ### Backend
-- Migrations:
-  - `categories` table (id, user_id, name, type, color_hex, icon_emoji, is_default)
-  - `transactions` table (id, user_id, account_id, type enum, date, description, amount_paise, category_id, notes, tags jsonb, is_recurring, created_at)
-  - `transaction_splits` table (id, transaction_id, category_id, amount_paise, notes)
-- Seed default categories per user on registration
-- `GET /api/v1/transactions` — cursor-paginated; filters: date_from, date_to, account_id, category_id, type, tag, search (description LIKE), amount_min, amount_max
-- `POST /api/v1/transactions` — create (with optional splits array)
-- `PATCH /api/v1/transactions/:id` — update
-- `DELETE /api/v1/transactions/:id` — soft delete own transaction
-- `POST /api/v1/transactions/bulk` — bulk categorise / tag / soft delete
-- `GET /api/v1/transactions/export/csv` — filtered CSV download
-- `GET /api/v1/transactions/summary` — income/expense/net for current filter
+- Migration slice:
+  - `categories` table: `id, user_id, parent_id, name, type (income|expense), color_hex, icon_emoji, is_default, is_active, created_at, updated_at`
+  - `transactions` table: `id, user_id, account_id, transfer_account_id, type, date, description, amount_paise, category_id, notes, is_recurring, recurrence_frequency, deleted_at, created_at, updated_at`
+  - `transaction_splits` table: `id, user_id, transaction_id, category_id, amount_paise, notes`
+  - `transaction_tags` table: `id, user_id, transaction_id, tag`
+  - `transaction_account_effects` table: exact account balance/INR deltas applied by each transaction.
+  - Indexes for `(user_id, deleted_at, date, id)`, account filters, category filters, type filters, tags, and transfer account lookups.
+- Categories slice:
+  - Seed default income/expense categories for existing users and new users.
+  - `GET /api/v1/categories` — list active categories grouped parent → children.
+  - `POST /api/v1/categories` — create user category.
+  - `PATCH /api/v1/categories/:id` — rename/update color/icon/parent.
+  - `DELETE /api/v1/categories/:id` — soft archive when not needed by active transactions; reassignment/merge can come later.
+- Balance-effect engine:
+  - Implement one helper that converts a transaction into account deltas.
+  - `income`: asset account `+amount`; liability income/refund cases rejected for now.
+  - `expense`: asset account `-amount`; credit-card liability account `+amount`.
+  - `transfer`: source asset `-amount`, destination asset `+amount`; does not affect net worth.
+  - `credit_card_payment`: source asset `-amount`, destination credit-card liability `-amount`.
+  - `loan_repayment`: source asset `-amount`, destination loan liability `-amount`.
+  - `valuation_update`: manual asset/liability valuation update; set account balance/value through a controlled path.
+  - `investment_buy`, `investment_sell`: record-only until Phase 5 holdings/cash sub-ledger exists.
+  - `dividend`: asset account `+amount`; detailed dividend reporting remains Phase 5.
+  - Updates reverse the old active transaction effect, apply the new effect, and write both changes in one DB transaction.
+- Transactions API slice:
+  - `GET /api/v1/transactions` — cursor-paginated; default current month; filters: `date_from`, `date_to`, `account_id`, `category_id`, `type`, `tag`, `search`, `amount_min`, `amount_max`, `sort`.
+  - `GET /api/v1/transactions/summary` — income/expense/net/count for the same filter set.
+  - `POST /api/v1/transactions` — create with optional splits and tags.
+  - `PATCH /api/v1/transactions/:id` — update own active transaction; reverse/apply account deltas.
+  - `DELETE /api/v1/transactions/:id` — soft delete own active transaction; reverse account deltas.
+  - `POST /api/v1/transactions/bulk` — bulk categorize, tag, untag, or soft delete selected transactions.
+  - `GET /api/v1/transactions/export/csv` — filtered CSV export.
+- Validation rules:
+  - All referenced accounts/categories/transactions must belong to authenticated `user_id`.
+  - Amounts are positive integer paise.
+  - Splits must sum exactly to `amount_paise`.
+  - Income/expense categories must match transaction type where applicable.
+  - Transfer/payment/loan repayment types require a destination account.
+  - Deleted transactions are excluded from all views, summaries, CSV exports, and balance calculations.
 
 ### Frontend
+- API/types:
+  - Add transaction, category, split, tag, filter, summary, and cursor types.
+  - Add `api/categories.ts` and `api/transactions.ts`.
 - Transactions screen:
-  - Filter bar: search box, date chip, account/category/type/amount/tag dropdowns, CSV export, "+ Add" button
-  - Summary strip (count, total income, total expenses, net)
-  - Bulk action bar (select all, bulk categorise/tag/soft delete)
-  - TanStack Table with columns: checkbox, date, description, account, category, type tag, tags, amount, action menu
-  - Cursor-based infinite scroll / load-more
-- Add Transaction modal:
-  - Type selector (Income, Expense, Transfer, Invest Buy, Invest Sell, Dividend, Loan Repay, CC Payment)
-  - Prominent amount input
-  - Fields: date, account, description, category, tags, notes
-  - "Split into multiple categories" toggle → dynamic split rows
-  - "Recurring transaction" checkbox
-- Edit transaction inline (same modal, pre-filled)
+  - Dense filter bar: search, date range/current-month default, account, category, type, amount min/max, tag, CSV export, `+ Add`.
+  - Summary strip: count, total income, total expenses, net.
+  - Table: checkbox, date, description, account, category/split marker, type tag, tags, amount, action menu.
+  - Cursor-based `Load more`; retain filters in component state.
+  - Bulk action bar for selected rows: categorize, add/remove tag, soft delete.
+  - Use local table markup matching `docs/design.html` density unless TanStack Table is added to the project dependencies first.
+- Add/Edit Transaction modal:
+  - Type selector: Income, Expense, Transfer, Investment Buy, Investment Sell, Dividend, Loan Repayment, Credit Card Payment, Valuation Update.
+  - Prominent amount input.
+  - Account selector and conditional destination account selector.
+  - Category selector required for income/expense.
+  - Tags input, notes, recurring checkbox/frequency storage.
+  - Split toggle for income/expense with dynamic split rows; validate exact total before submit.
+  - Same modal handles edit with pre-filled fields.
+- UX states:
+  - Empty state for no transactions.
+  - Loading/error states for table and modal submits.
+  - Confirmation for soft delete and bulk soft delete.
+  - Keep all visible currency/date formatting consistent with existing helpers.
+
+### Implementation order
+1. Schema + Rust models + category seeding/backfill.
+2. Balance-effect helper with focused unit tests before exposing mutation endpoints.
+3. Categories API and docs.
+4. Transaction CRUD APIs and docs.
+5. Filters, cursor pagination, summary, CSV export, and bulk actions.
+6. Frontend category/transaction clients and Transactions page.
+7. Add/edit modal with splits and conditional fields.
+8. End-to-end smoke checks with multiple accounts and transaction types.
+
+### Test coverage
+- Unit tests for account delta calculations by transaction type.
+- Validation tests for split totals, ownership checks, category/type mismatch, and missing destination accounts.
+- API tests or smoke scripts for create → update → delete reversing balances correctly.
+- CSV export test for filtered rows and escaping.
+- Frontend build and manual browser smoke test for add/edit/filter/export flows.
 
 ### Completion marker
-Add 10 transactions of mixed types → list renders with correct colours → filters narrow results → CSV downloads with correct data.
+Add 10 transactions of mixed types across bank, credit-card, loan, and investment accounts → account balances update correctly → list renders with correct colors → filters and cursor pagination narrow results → split transaction totals validate → soft delete reverses balances → CSV downloads filtered data.
 
 ---
 

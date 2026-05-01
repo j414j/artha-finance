@@ -39,6 +39,8 @@ async fn main() {
         .route("/api/v1/health", get(health_check))
         .nest("/api/v1/auth", routes::auth::router())
         .nest("/api/v1/accounts", routes::accounts::router())
+        .nest("/api/v1/categories", routes::categories::router())
+        .nest("/api/v1/transactions", routes::transactions::router())
         .with_state(state)
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive());

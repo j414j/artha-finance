@@ -17,7 +17,7 @@ use crate::{
             validate_color_hex, validate_date, Account, AccountView, CreateAccountRequest,
             UpdateAccountRequest, ACCOUNT_TYPES,
         },
-        user::User,
+        audit::insert_audit_log,
     },
     state::AppState,
 };
@@ -77,7 +77,7 @@ async fn create_account(
     let account = fetch_active_account_in_tx(&mut tx, &id, &user.id).await?;
     insert_audit_log(
         &mut tx,
-        &user,
+        &user.id,
         "create",
         "account",
         &id,
@@ -135,7 +135,7 @@ async fn update_account(
     let after = fetch_active_account_in_tx(&mut tx, &id, &user.id).await?;
     insert_audit_log(
         &mut tx,
-        &user,
+        &user.id,
         "update",
         "account",
         &id,
@@ -173,7 +173,7 @@ async fn archive_account(
 
     insert_audit_log(
         &mut tx,
-        &user,
+        &user.id,
         "archive",
         "account",
         &id,
@@ -444,32 +444,4 @@ async fn fetch_active_account_in_tx(
     .fetch_optional(&mut **tx)
     .await?
     .ok_or_else(|| AppError::NotFound("Account not found".into()))
-}
-
-async fn insert_audit_log(
-    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-    user: &User,
-    action: &str,
-    entity_type: &str,
-    entity_id: &str,
-    diff: Value,
-) -> Result<()> {
-    let id = Uuid::new_v4().to_string();
-    let diff_json =
-        serde_json::to_string(&diff).map_err(|err| AppError::Internal(anyhow::Error::from(err)))?;
-
-    sqlx::query(
-        "INSERT INTO audit_log (id, user_id, action, entity_type, entity_id, diff_json)
-         VALUES (?, ?, ?, ?, ?, ?)",
-    )
-    .bind(&id)
-    .bind(&user.id)
-    .bind(action)
-    .bind(entity_type)
-    .bind(entity_id)
-    .bind(diff_json)
-    .execute(&mut **tx)
-    .await?;
-
-    Ok(())
 }

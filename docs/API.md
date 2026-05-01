@@ -213,6 +213,225 @@ Archive an active account owned by the authenticated user. This is a soft delete
 
 ---
 
+## Categories
+
+Categories are private to the authenticated user and are grouped into an income/expense parent-child tree.
+
+### Category object
+
+```json
+{
+  "id": "uuid-or-default-id",
+  "parent_id": null,
+  "name": "Food",
+  "type": "expense",
+  "color_hex": "#F0A500",
+  "icon_emoji": "FO",
+  "is_default": true,
+  "children": []
+}
+```
+
+### GET /api/v1/categories
+List active categories owned by the authenticated user.
+
+**Response 200**
+```json
+{ "categories": [{ "id": "uuid", "name": "Food", "children": [] }] }
+```
+
+### POST /api/v1/categories
+Create a category.
+
+**Body**
+```json
+{
+  "parent_id": null,
+  "name": "Medical",
+  "type": "expense",
+  "color_hex": "#F04060",
+  "icon_emoji": "MD"
+}
+```
+
+**Response 201**
+```json
+{ "category": { "id": "uuid", "name": "Medical", "type": "expense" } }
+```
+
+### PATCH /api/v1/categories/:id
+Update category name, parent, color, or icon. `type` cannot be changed after creation.
+
+**Body**
+```json
+{ "name": "Healthcare", "parent_id": null, "icon_emoji": "HC" }
+```
+
+**Response 200**
+```json
+{ "category": { "id": "uuid", "name": "Healthcare" } }
+```
+
+### DELETE /api/v1/categories/:id
+Archive an unused category. Categories referenced by active transactions or splits cannot be archived until reassignment/merge exists.
+
+**Response 204** (no body)
+
+**Errors**: `UNAUTHORIZED`, `NOT_FOUND`, `BAD_REQUEST`
+
+---
+
+## Transactions
+
+Transaction rows, splits, tags, account effects, summaries, and CSV exports are scoped to the authenticated owner. Deleting a transaction sets `deleted_at` and reverses the stored account balance effects; no transaction is hard-deleted through the API.
+
+Transaction types:
+
+| Type | Balance effect in Phase 3 |
+|---|---|
+| `income` | Asset account increases |
+| `expense` | Asset account decreases, or credit-card liability increases |
+| `transfer` | Source asset decreases; destination asset increases |
+| `investment_buy` | Record-only until Phase 5 holdings/cash sub-ledger |
+| `investment_sell` | Record-only until Phase 5 holdings/cash sub-ledger |
+| `dividend` | Asset/investment account increases |
+| `loan_repayment` | Source asset decreases; loan liability decreases |
+| `credit_card_payment` | Source asset decreases; credit-card liability decreases |
+| `valuation_update` | Account balance is set to the submitted amount |
+
+### Transaction object
+
+```json
+{
+  "id": "uuid",
+  "account_id": "uuid",
+  "account_name": "HDFC Savings",
+  "transfer_account_id": null,
+  "transfer_account_name": null,
+  "type": "expense",
+  "date": "2026-05-01",
+  "description": "Groceries",
+  "amount_paise": 300000,
+  "category_id": "uuid",
+  "category_name": "Groceries",
+  "notes": null,
+  "tags": ["home"],
+  "splits": [],
+  "is_recurring": false,
+  "recurrence_frequency": null,
+  "created_at": "2026-05-01 10:30:00",
+  "updated_at": "2026-05-01 10:30:00"
+}
+```
+
+### GET /api/v1/transactions
+List active transactions, cursor-paginated by `date DESC, id DESC`. Defaults to the current month when no date filter is supplied.
+
+**Query params**
+
+`cursor`, `limit` (1-100), `date_from`, `date_to`, `account_id`, `category_id`, `type`, `tag`, `search`, `amount_min`, `amount_max`, `sort=date_desc`
+
+**Response 200**
+```json
+{
+  "transactions": [],
+  "next_cursor": "2026-05-01|uuid"
+}
+```
+
+### GET /api/v1/transactions/summary
+Return count, income, expense, and net totals using the same filters as the list endpoint.
+
+**Response 200**
+```json
+{
+  "summary": {
+    "count": 12,
+    "total_income_paise": 15000000,
+    "total_expense_paise": 4200000,
+    "net_paise": 10800000
+  }
+}
+```
+
+### POST /api/v1/transactions
+Create a transaction. All referenced accounts/categories must belong to the authenticated user. Income, expense, and dividend require a matching category unless an income/expense transaction uses splits. Splits must total exactly `amount_paise`.
+
+**Body**
+```json
+{
+  "account_id": "uuid",
+  "transfer_account_id": null,
+  "type": "expense",
+  "date": "2026-05-01",
+  "description": "Groceries",
+  "amount_paise": 300000,
+  "category_id": "uuid",
+  "notes": null,
+  "tags": ["home"],
+  "splits": [],
+  "is_recurring": false,
+  "recurrence_frequency": null
+}
+```
+
+**Response 201**
+```json
+{ "transaction": { "id": "uuid", "type": "expense", "amount_paise": 300000 } }
+```
+
+### PATCH /api/v1/transactions/:id
+Update an active transaction. The API reverses the original stored account effects and applies the new effects in one database transaction.
+
+**Body**
+```json
+{
+  "description": "Weekly groceries",
+  "amount_paise": 325000,
+  "tags": ["home", "food"]
+}
+```
+
+**Response 200**
+```json
+{ "transaction": { "id": "uuid", "description": "Weekly groceries" } }
+```
+
+### DELETE /api/v1/transactions/:id
+Soft delete an active transaction and reverse its stored account balance effects.
+
+**Response 204** (no body)
+
+### POST /api/v1/transactions/bulk
+Apply one action to up to 100 active transactions.
+
+**Body examples**
+```json
+{ "ids": ["uuid"], "action": "add_tag", "tag": "tax" }
+```
+```json
+{ "ids": ["uuid"], "action": "categorize", "category_id": "uuid" }
+```
+```json
+{ "ids": ["uuid"], "action": "soft_delete" }
+```
+
+Supported actions: `soft_delete`, `add_tag`, `remove_tag`, `categorize`.
+
+**Response 200**
+```json
+{ "updated": 1 }
+```
+
+### GET /api/v1/transactions/export/csv
+Export up to 10,000 filtered transactions as CSV. Uses the same filters as the list endpoint except cursor pagination.
+
+**Response 200** `text/csv`
+
+**Errors**: `UNAUTHORIZED`, `NOT_FOUND`, `BAD_REQUEST`
+
+---
+
 ## Health
 
 ### GET /api/v1/health

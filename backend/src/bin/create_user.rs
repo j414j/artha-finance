@@ -22,8 +22,8 @@ async fn main() -> anyhow::Result<()> {
         std::process::exit(1);
     }
 
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite:../data/artha.db".into());
+    let database_url =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:../data/artha.db".into());
 
     let pool = db::create_pool(&database_url).await?;
     db::run_migrations(&pool).await?;
@@ -49,7 +49,10 @@ async fn main() -> anyhow::Result<()> {
 
     match result {
         Ok(_) => {
-            println!("✓ Created user: {} <{}>  [{}]", display_name, email, avatar_initials);
+            println!(
+                "✓ Created user: {} <{}>  [{}]",
+                display_name, email, avatar_initials
+            );
         }
         Err(e) if e.to_string().contains("UNIQUE") => {
             eprintln!("Error: {} is already registered", email);

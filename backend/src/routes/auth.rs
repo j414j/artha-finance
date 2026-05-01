@@ -1,4 +1,9 @@
-use axum::{extract::State, http::StatusCode, routing::{get, post}, Json, Router};
+use axum::{
+    extract::State,
+    http::StatusCode,
+    routing::{get, post},
+    Json, Router,
+};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use chrono::{Duration, Utc};
 use serde_json::{json, Value};
@@ -7,7 +12,10 @@ use uuid::Uuid;
 use crate::{
     error::{AppError, Result},
     middleware::auth::AuthUser,
-    models::user::{generate_initials, LoginRequest, RegisterRequest, User, UserPublic},
+    models::{
+        category::seed_default_categories_in_tx,
+        user::{generate_initials, LoginRequest, RegisterRequest, User, UserPublic},
+    },
     state::AppState,
 };
 
@@ -43,6 +51,8 @@ async fn register(
     let avatar_initials = generate_initials(&req.display_name);
     let email = req.email.to_lowercase();
 
+    let mut tx = state.db.begin().await?;
+
     sqlx::query(
         "INSERT INTO users (id, email, display_name, password_hash, avatar_initials) \
          VALUES (?, ?, ?, ?, ?)",
@@ -52,8 +62,11 @@ async fn register(
     .bind(&req.display_name)
     .bind(&password_hash)
     .bind(&avatar_initials)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?;
+
+    seed_default_categories_in_tx(&mut tx, &id).await?;
+    tx.commit().await?;
 
     Ok((
         StatusCode::CREATED,
