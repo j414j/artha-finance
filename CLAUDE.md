@@ -70,11 +70,11 @@ Key decisions: multi-user from Phase 1 with per-user private data (all domain ta
 - [x] Phase 0 — complete
 - [x] Phase 1 — complete
 - [x] Phase 2 — complete
-- [ ] Phase 3 — implemented; manual smoke testing pending
-- [ ] Phase 4 — not started
-- [ ] Phase 5 — implemented; manual smoke testing pending
-- [ ] Phase 6 — not started
-- [ ] Phase 7 — not started
+- [x] Phase 3 — complete
+- [x] Phase 4 — complete
+- [x] Phase 5 — complete
+- [x] Phase 6 — complete
+- [x] Phase 7 — complete
 - [ ] Phase 8 — not started
 - [ ] Phase 9 — not started
 
