@@ -41,6 +41,7 @@ async fn main() {
         .nest("/api/v1/accounts", routes::accounts::router())
         .nest("/api/v1/categories", routes::categories::router())
         .nest("/api/v1/transactions", routes::transactions::router())
+        .nest("/api/v1/budget", routes::budget::router())
         .nest("/api/v1/fx-rates", routes::fx_rates::router())
         .nest(
             "/api/v1/instruments",

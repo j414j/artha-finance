@@ -1,6 +1,7 @@
 pub mod account;
 pub mod audit;
 pub mod balance_effect;
+pub mod budget;
 pub mod category;
 pub mod fx_rate;
 pub mod instrument;

@@ -434,6 +434,208 @@ Export up to 10,000 filtered transactions as CSV. Uses the same filters as the l
 
 ---
 
+## Budget
+
+Budgets are scoped to the authenticated user and only apply to expense categories.
+
+The budget model has two layers:
+
+- `budget_base`: the recurring monthly template.
+- `budget_months` + `budget_month_allocations`: a per-month snapshot copied from the base budget when that month is first opened or edited.
+
+Editing the base budget does not mutate already materialized months. If a real base budget already exists, the backend materializes the current month and months with existing transaction activity using the old base values before saving the base edit, so later base changes do not rewrite previous budgets. Empty automatic snapshots are treated as uninitialized; once a base budget is created, those months are refreshed from the base instead of staying at zero. Monthly edits update only that selected month.
+
+### Budget category object
+
+```json
+{
+  "id": "uuid-or-default-id",
+  "parent_id": "parent-id-or-null",
+  "name": "Groceries",
+  "color_hex": "#F0A500",
+  "icon_emoji": "GR"
+}
+```
+
+### GET /api/v1/budget/base
+
+Return every active expense category with its base monthly amount. Categories without a base budget return `amount_paise: 0`.
+
+**Response 200**
+```json
+{
+  "allocations": [
+    {
+      "category_id": "uuid",
+      "category": { "id": "uuid", "name": "Groceries" },
+      "amount_paise": 1200000
+    }
+  ]
+}
+```
+
+### PUT /api/v1/budget/base
+
+Upsert base allocations. Omitted categories are unchanged. Sending `amount_paise: 0` removes that category from the recurring base template. Existing monthly snapshots are not changed.
+
+**Body**
+```json
+{
+  "allocations": [
+    { "category_id": "uuid", "amount_paise": 1200000 }
+  ]
+}
+```
+
+**Response 200**
+```json
+{ "allocations": [ { "category_id": "uuid", "amount_paise": 1200000 } ] }
+```
+
+**Errors**: `UNAUTHORIZED`, `BAD_REQUEST`
+
+---
+
+### GET /api/v1/budget?year=&month=
+
+Return the selected month budget. If the month does not have a snapshot yet, the backend creates one by copying the current base budget values for all active expense categories.
+
+Expense transactions are attributed to the nearest budgeted category in their category ancestry. For example, if `Transport` is budgeted and `Fuel` is not, `Fuel` spend rolls up to `Transport`; if both are budgeted, `Fuel` spend stays on `Fuel`.
+
+**Query params**
+
+`year` and `month` are optional together. If both are omitted, the current server month is used.
+
+**Response 200**
+```json
+{
+  "budget": {
+    "year": 2026,
+    "month": 4,
+    "month_label": "April 2026",
+    "summary": {
+      "total_budget_paise": 8500000,
+      "spent_paise": 6842000,
+      "remaining_paise": 1658000,
+      "used_pct": 80.5,
+      "expected_pct": 93.3,
+      "days_elapsed": 28,
+      "days_in_month": 30
+    },
+    "savings": {
+      "income_paise": 15000000,
+      "expense_paise": 8200000,
+      "net_paise": 6800000,
+      "savings_rate_pct": 45.3
+    },
+    "allocations": [
+      {
+        "category_id": "uuid",
+        "category": { "id": "uuid", "name": "Groceries" },
+        "amount_paise": 1200000,
+        "is_manual_override": false
+      }
+    ],
+    "items": [
+      {
+        "category_id": "uuid",
+        "category": { "id": "uuid", "name": "Groceries" },
+        "allocated_paise": 1200000,
+        "spent_paise": 820000,
+        "remaining_paise": 380000,
+        "used_pct": 68.3,
+        "expected_pct": 93.3,
+        "status": "well_within",
+        "is_manual_override": false
+      }
+    ],
+    "unbudgeted": [
+      {
+        "category_id": "uuid",
+        "category_name": "Gifts",
+        "color_hex": "#C02040",
+        "icon_emoji": "SH",
+        "spent_paise": 250000
+      }
+    ]
+  }
+}
+```
+
+`status` is one of `over_budget`, `near_limit`, `ahead_of_pace`, `well_within`, or `on_track`.
+
+---
+
+### PUT /api/v1/budget/monthly
+
+Upsert allocations for one month. If the month has not been materialized, it is first copied from the base budget, then the supplied category amounts are marked as manual overrides. Omitted categories keep their current monthly snapshot value.
+
+Alias: `PUT /api/v1/budget/override`
+
+**Body**
+```json
+{
+  "year": 2026,
+  "month": 4,
+  "allocations": [
+    { "category_id": "uuid", "amount_paise": 1000000 }
+  ]
+}
+```
+
+**Response 200**
+```json
+{ "budget": { "year": 2026, "month": 4, "items": [] } }
+```
+
+**Errors**: `UNAUTHORIZED`, `BAD_REQUEST`
+
+---
+
+### GET /api/v1/budget/history?year=&month=&months=
+
+Return budget usage percentages and savings-rate trend for the trailing window ending at the selected month. `months` defaults to `6` and must be between `1` and `24`.
+
+**Response 200**
+```json
+{
+  "history": {
+    "months": [
+      { "year": 2025, "month": 11, "label": "Nov" }
+    ],
+    "rows": [
+      {
+        "category_id": "uuid",
+        "category": { "id": "uuid", "name": "Groceries" },
+        "values": [
+          {
+            "year": 2025,
+            "month": 11,
+            "allocated_paise": 1200000,
+            "spent_paise": 940000,
+            "used_pct": 78.3
+          }
+        ]
+      }
+    ],
+    "savings_rate_trend": [
+      {
+        "year": 2025,
+        "month": 11,
+        "label": "Nov",
+        "income_paise": 15000000,
+        "expense_paise": 9000000,
+        "savings_rate_pct": 40.0
+      }
+    ]
+  }
+}
+```
+
+**Errors**: `UNAUTHORIZED`, `BAD_REQUEST`
+
+---
+
 ## Health
 
 ### GET /api/v1/health

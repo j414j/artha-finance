@@ -204,11 +204,12 @@ Add 10 transactions of mixed types across bank, credit-card, loan, and investmen
 
 ### Backend
 - Migrations:
-  - `budgets` table (id, user_id, category_id, monthly_limit_paise — base template)
-  - `budget_overrides` table (id, user_id, category_id, year, month, limit_paise — per-month override)
+  - `budget_base` table (id, user_id, category_id, amount_paise — recurring template)
+  - `budget_months` table (id, user_id, year, month — materialized month snapshot)
+  - `budget_month_allocations` table (id, user_id, budget_month_id, category_id, amount_paise, is_manual_override)
 - `GET /api/v1/budget?year=&month=` — returns each category with limit, actual spend (from transactions), %, status
 - `PUT /api/v1/budget/base` — upsert base monthly limits for all categories
-- `PUT /api/v1/budget/override` — upsert a single month override
+- `PUT /api/v1/budget/monthly` / `PUT /api/v1/budget/override` — upsert selected month overrides
 - `GET /api/v1/budget/history?months=6` — per-category spend % for last N months
 
 ### Frontend

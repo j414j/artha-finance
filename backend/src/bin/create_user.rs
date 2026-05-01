@@ -1,4 +1,7 @@
-use artha_backend::{db, models::user::generate_initials};
+use artha_backend::{
+    db,
+    models::{category::seed_default_categories, user::generate_initials},
+};
 use std::io::{self, Write};
 
 #[tokio::main]
@@ -49,6 +52,7 @@ async fn main() -> anyhow::Result<()> {
 
     match result {
         Ok(_) => {
+            seed_default_categories(&pool, &id).await.unwrap();
             println!(
                 "✓ Created user: {} <{}>  [{}]",
                 display_name, email, avatar_initials

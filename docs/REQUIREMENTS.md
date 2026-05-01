@@ -229,8 +229,9 @@ Transactions belong to the user who owns the related account. Users can only vie
 ### 6.1 Budget Model
 
 - A **Base Budget** defines monthly allocations for each expense category.
-- The base budget repeats every month automatically.
-- For any given month, the user can make **monthly overrides** — increase or decrease specific category allocations for that month only without changing the base.
+- The base budget is copied into a month snapshot when that month is first opened or edited.
+- Editing the base budget does not rewrite already materialized month snapshots, so previous months keep their historical allocations.
+- For any given month, the user can edit **monthly overrides** — increase, decrease, or clear specific category allocations for that month only without changing the base.
 - Budget allocations are per-category; income categories are excluded.
 
 ### 6.2 Budget Tracking
@@ -638,8 +639,9 @@ The following reports can be exported as PDF or CSV:
 - `transaction_tags` — transaction_id, tag
 - `categories` — id, user_id, name, parent_id, type (income/expense), colour
 - `recurring_templates` — id, user_id, frequency, next_due_date, template fields mirroring transactions
-- `budget_base` — id, user_id, category_id, monthly_amount
-- `budget_overrides` — id, user_id, category_id, year, month, amount
+- `budget_base` — id, user_id, category_id, amount_paise
+- `budget_months` — id, user_id, year, month
+- `budget_month_allocations` — id, user_id, budget_month_id, category_id, amount_paise, is_manual_override
 - `goals` — id, user_id, name, target_amount, target_date, account_id, status, notes
 - `goal_transactions` — id, user_id, goal_id, date, amount (positive=block, negative=unblock), notes
 - `instruments` — id, user_id, name, ticker, type, currency, sector, geography, notes
