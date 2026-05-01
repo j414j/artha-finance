@@ -5,6 +5,8 @@ services:
       - "8080:8080"
     environment:
       - DATABASE_URL=sqlite:/app/data/artha.db
+      - HOST=0.0.0.0
+      - PORT=8080
       - RUST_LOG=artha_backend=debug,tower_http=debug
     volumes:
       - ./data:/app/data

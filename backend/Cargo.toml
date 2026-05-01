@@ -4,8 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "artha-backend"
-path = "src/main.rs"
+name = "artha"
+path = "src/bin/main.rs"
+
+[[bin]]
+name = "create_user"
+path = "src/bin/create_user.rs"
 
 [dependencies]
 axum = { version = "0.7", features = ["macros"] }
@@ -21,3 +25,5 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
 dotenvy = "0.15"
+axum-extra = { version = "0.9", features = ["cookie"] }
+async-trait = "0.1"

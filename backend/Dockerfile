@@ -14,8 +14,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=builder /app/target/release/artha-backend .
+COPY --from=builder /app/target/release/artha .
 COPY --from=builder /app/migrations ./migrations
 
 EXPOSE 8080
-CMD ["./artha-backend"]
+CMD ["./artha"]
