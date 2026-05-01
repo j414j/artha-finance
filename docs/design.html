@@ -1,0 +1,2380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Artha — Personal Finance Design</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Sans+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0c0f;
+    --bg2: #0f1215;
+    --bg3: #141820;
+    --bg4: #1c2230;
+    --border: #1e2535;
+    --border2: #252f42;
+    --text: #c8d4e8;
+    --text2: #7a8fb5;
+    --text3: #4a5878;
+    --accent: #f0a500;
+    --accent2: #e8860a;
+    --green: #00c896;
+    --green2: #009e78;
+    --red: #f04060;
+    --red2: #c02040;
+    --blue: #3a7fff;
+    --blue2: #2060dd;
+    --purple: #9060f0;
+    --cyan: #00b8d4;
+    --font-mono: 'IBM Plex Mono', monospace;
+    --font: 'IBM Plex Sans', sans-serif;
+    --font-cond: 'IBM Plex Sans Condensed', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; line-height: 1.4; }
+
+  /* ── Layout Shell ── */
+  .shell { display: flex; height: 100vh; overflow: hidden; }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    width: 52px;
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 12px 0;
+    gap: 4px;
+    flex-shrink: 0;
+    z-index: 10;
+  }
+  .sidebar-logo {
+    width: 36px; height: 36px;
+    background: var(--accent);
+    color: #000;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 12px;
+    letter-spacing: -1px;
+  }
+  .nav-item {
+    width: 40px; height: 40px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 4px;
+    cursor: pointer;
+    color: var(--text3);
+    font-size: 16px;
+    transition: all 0.15s;
+    position: relative;
+  }
+  .nav-item:hover { background: var(--bg4); color: var(--text2); }
+  .nav-item.active { background: var(--bg4); color: var(--accent); }
+  .nav-item.active::before {
+    content: '';
+    position: absolute; left: 0; top: 8px; bottom: 8px;
+    width: 2px; background: var(--accent);
+  }
+  .nav-spacer { flex: 1; }
+
+  /* ── Main area ── */
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* ── Top bar ── */
+  .topbar {
+    height: 40px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center;
+    padding: 0 16px;
+    gap: 16px;
+    flex-shrink: 0;
+  }
+  .topbar-title {
+    font-family: var(--font-cond);
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.05em;
+    color: var(--text2);
+    text-transform: uppercase;
+  }
+  .topbar-title span { color: var(--accent); }
+  .topbar-tabs { display: flex; gap: 1px; margin-left: 8px; }
+  .tab {
+    padding: 6px 12px;
+    font-size: 11px;
+    font-family: var(--font-cond);
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text3);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+  }
+  .tab:hover { color: var(--text2); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .privacy-btn {
+    padding: 3px 8px;
+    border: 1px solid var(--border2);
+    background: none;
+    color: var(--text3);
+    font-size: 10px;
+    font-family: var(--font-mono);
+    cursor: pointer;
+    letter-spacing: 0.05em;
+  }
+  .privacy-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .user-avatar {
+    width: 24px; height: 24px;
+    background: var(--blue2);
+    border-radius: 2px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px;
+    font-weight: 600;
+  }
+
+  /* ── Screen container ── */
+  .screens { display: flex; gap: 0; }
+  .screen-wrap {
+    flex-shrink: 0;
+  }
+  .screen-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text3);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 6px 12px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .screen-label .badge {
+    background: var(--bg4);
+    color: var(--text2);
+    padding: 1px 6px;
+    font-size: 9px;
+  }
+  .content { overflow-y: auto; overflow-x: hidden; padding: 0; }
+  .content::-webkit-scrollbar { width: 4px; }
+  .content::-webkit-scrollbar-thumb { background: var(--border2); }
+
+  /* ── Scrollable horizontal viewer ── */
+  #app-viewer {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .screens-scroll {
+    flex: 1;
+    display: flex;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  .screens-scroll::-webkit-scrollbar { height: 4px; }
+  .screens-scroll::-webkit-scrollbar-thumb { background: var(--border2); }
+
+  /* ── Common components ── */
+  .grid { display: grid; gap: 1px; background: var(--border); }
+  .cell { background: var(--bg2); }
+  .panel { background: var(--bg2); border: 1px solid var(--border); }
+
+  .metric-label {
+    font-size: 9px;
+    font-family: var(--font-cond);
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text3);
+  }
+  .metric-val {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 400;
+    color: var(--text);
+    letter-spacing: -0.5px;
+    line-height: 1.1;
+  }
+  .metric-val.lg { font-size: 28px; }
+  .metric-val.sm { font-size: 15px; }
+  .metric-change {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    display: flex; align-items: center; gap: 3px;
+  }
+  .up { color: var(--green); }
+  .dn { color: var(--red); }
+  .neu { color: var(--text2); }
+
+  .section-hd {
+    font-family: var(--font-cond);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text3);
+    border-bottom: 1px solid var(--border);
+    padding: 6px 12px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .section-hd .action {
+    font-size: 9px;
+    color: var(--accent);
+    cursor: pointer;
+    letter-spacing: 0.05em;
+  }
+
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    font-family: var(--font-cond);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text3);
+    padding: 5px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  th.r { text-align: right; }
+  td {
+    padding: 5px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  td.mono { font-family: var(--font-mono); font-size: 11px; }
+  td.r { text-align: right; }
+  tr:hover td { background: var(--bg3); }
+
+  .tag {
+    display: inline-block;
+    padding: 1px 5px;
+    font-size: 9px;
+    font-family: var(--font-mono);
+    letter-spacing: 0.04em;
+    background: var(--bg4);
+    color: var(--text2);
+    border-radius: 1px;
+  }
+  .tag.income { background: rgba(0,200,150,0.12); color: var(--green); }
+  .tag.expense { background: rgba(240,64,96,0.12); color: var(--red); }
+  .tag.transfer { background: rgba(58,127,255,0.12); color: var(--blue); }
+  .tag.invest { background: rgba(144,96,240,0.12); color: var(--purple); }
+
+  .btn {
+    padding: 5px 12px;
+    font-family: var(--font-cond);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-primary { background: var(--accent); color: #000; }
+  .btn-primary:hover { background: var(--accent2); }
+  .btn-ghost { background: none; border: 1px solid var(--border2); color: var(--text2); }
+  .btn-ghost:hover { border-color: var(--text2); color: var(--text); }
+
+  /* ── Progress bar ── */
+  .pbar-wrap { background: var(--bg4); height: 3px; width: 100%; }
+  .pbar { height: 3px; transition: width 0.3s; }
+  .pbar.green { background: var(--green); }
+  .pbar.amber { background: #f0a500; }
+  .pbar.red { background: var(--red); }
+
+  /* ── Sparkline SVG ── */
+  .spark { display: block; }
+
+  /* ── Chart bars ── */
+  .bar-chart { display: flex; align-items: flex-end; gap: 2px; }
+  .bar { flex: 1; min-height: 2px; transition: height 0.3s; }
+
+  /* ── Donut ── */
+  .donut-wrap { position: relative; display: inline-flex; align-items: center; justify-content: center; }
+  .donut-center { position: absolute; text-align: center; }
+
+  /* ── Input ── */
+  input[type=text], input[type=number], select {
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    color: var(--text);
+    padding: 5px 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    outline: none;
+    width: 100%;
+  }
+  input:focus, select:focus { border-color: var(--accent); }
+  select { appearance: none; }
+  label {
+    font-family: var(--font-cond);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text3);
+    display: block;
+    margin-bottom: 3px;
+  }
+  .field { margin-bottom: 10px; }
+
+  /* ── Screen nav buttons ── */
+  .screen-nav {
+    display: flex; gap: 2px; padding: 8px 12px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    flex-shrink: 0;
+  }
+  .screen-nav::-webkit-scrollbar { display: none; }
+  .snav-btn {
+    padding: 4px 10px;
+    font-family: var(--font-cond);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    cursor: pointer;
+    border: 1px solid var(--border2);
+    color: var(--text3);
+    background: none;
+    transition: all 0.15s;
+  }
+  .snav-btn:hover { color: var(--text2); border-color: var(--text3); }
+  .snav-btn.active { background: var(--accent); color: #000; border-color: var(--accent); }
+
+  /* ════════════════════════════════
+     SCREEN 1: DASHBOARD
+  ═══════════════════════════════════ */
+  #screen-dashboard { width: 1100px; }
+  .dash-top {
+    display: grid;
+    grid-template-columns: 280px 1fr 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  .dash-hero {
+    background: var(--bg2);
+    padding: 14px 16px;
+    border-right: 1px solid var(--border);
+  }
+  .dash-metric {
+    background: var(--bg2);
+    padding: 10px 14px;
+  }
+  .dash-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr 320px;
+    grid-template-rows: 200px 220px;
+    gap: 1px;
+    background: var(--border);
+  }
+  .dash-body .cell { background: var(--bg2); overflow: hidden; }
+  .dash-recent { grid-row: span 2; background: var(--bg2); }
+
+  /* ════════════════════════════════
+     SCREEN 2: ACCOUNTS
+  ═══════════════════════════════════ */
+  #screen-accounts { width: 900px; }
+  .accounts-layout { display: grid; grid-template-columns: 1fr 280px; gap: 1px; background: var(--border); }
+  .acc-group { margin-bottom: 0; }
+  .acc-group-hd {
+    background: var(--bg3);
+    padding: 5px 12px;
+    font-family: var(--font-cond);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text3);
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* ════════════════════════════════
+     SCREEN 3: TRANSACTIONS
+  ═══════════════════════════════════ */
+  #screen-transactions { width: 1000px; }
+  .tx-filters {
+    padding: 8px 12px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+    flex-wrap: wrap;
+  }
+  .filter-chip {
+    padding: 3px 8px;
+    border: 1px solid var(--border2);
+    font-size: 10px;
+    font-family: var(--font-cond);
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    color: var(--text2);
+    cursor: pointer;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .filter-chip.on { border-color: var(--accent); color: var(--accent); }
+  .search-box {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    padding: 3px 8px;
+    flex: 1; min-width: 160px;
+  }
+  .search-box input {
+    border: none; background: none; padding: 0;
+    font-size: 11px; color: var(--text); outline: none;
+    font-family: var(--font);
+    width: 100%;
+  }
+
+  /* ════════════════════════════════
+     SCREEN 4: BUDGET
+  ═══════════════════════════════════ */
+  #screen-budget { width: 960px; }
+  .budget-layout { display: grid; grid-template-columns: 1fr 300px; gap: 1px; background: var(--border); }
+
+  /* ════════════════════════════════
+     SCREEN 5: INVESTMENTS
+  ═══════════════════════════════════ */
+  #screen-investments { width: 1100px; }
+  .inv-layout { display: grid; grid-template-columns: 1fr 280px; gap: 1px; background: var(--border); }
+
+  /* ════════════════════════════════
+     SCREEN 6: GOALS
+  ═══════════════════════════════════ */
+  #screen-goals { width: 800px; }
+
+  /* ════════════════════════════════
+     SCREEN 7: ADD TRANSACTION (MODAL)
+  ═══════════════════════════════════ */
+  #screen-add-tx { width: 500px; }
+  .modal-wrap {
+    background: var(--bg2);
+    border: 1px solid var(--border2);
+    margin: 16px;
+  }
+  .modal-hd {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    font-family: var(--font-cond);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text2);
+  }
+  .type-selector { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border); margin: 12px; }
+  .type-btn {
+    padding: 8px 4px;
+    text-align: center;
+    font-family: var(--font-cond);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    background: var(--bg3);
+    color: var(--text3);
+    transition: all 0.15s;
+  }
+  .type-btn.active { background: var(--accent); color: #000; }
+  .type-btn:hover:not(.active) { background: var(--bg4); color: var(--text2); }
+
+  /* ════════════════════════════════
+     MOBILE SCREEN
+  ═══════════════════════════════════ */
+  #screen-mobile { width: 390px; }
+  .mobile-frame {
+    width: 390px;
+    background: var(--bg);
+    border: 1px solid var(--border2);
+    margin: 16px;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .mobile-topbar {
+    background: var(--bg2);
+    padding: 10px 14px 8px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .mobile-content { padding: 0; overflow-y: auto; height: 680px; }
+  .mobile-content::-webkit-scrollbar { display: none; }
+  .mobile-bottom-nav {
+    background: var(--bg2);
+    border-top: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    padding: 6px 0 10px;
+  }
+  .mob-nav-item {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    font-family: var(--font-cond);
+    font-size: 8px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text3);
+    cursor: pointer;
+    padding: 4px;
+  }
+  .mob-nav-item.active { color: var(--accent); }
+  .mob-nav-icon { font-size: 18px; }
+  .mob-metric-row {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 1px; background: var(--border);
+  }
+  .mob-metric {
+    background: var(--bg2);
+    padding: 10px 12px;
+  }
+  .mob-card {
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 12px;
+  }
+  .mob-tx-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .mob-tx-icon {
+    width: 30px; height: 30px;
+    border-radius: 2px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .mob-fab {
+    position: absolute;
+    bottom: 64px; right: 16px;
+    width: 44px; height: 44px;
+    background: var(--accent);
+    border-radius: 2px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    color: #000;
+    font-weight: 300;
+    box-shadow: 0 4px 20px rgba(240,165,0,0.35);
+    cursor: pointer;
+  }
+
+  /* Divider between screens */
+  .screen-divider {
+    width: 1px;
+    background: var(--border2);
+    flex-shrink: 0;
+    align-self: stretch;
+  }
+
+  /* Ticker bar */
+  .ticker-bar {
+    height: 22px;
+    background: #060810;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .ticker-scroll {
+    display: flex; gap: 32px;
+    animation: ticker 30s linear infinite;
+    white-space: nowrap;
+  }
+  @keyframes ticker {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
+  .ticker-item {
+    display: flex; align-items: center; gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+  }
+  .ticker-sym { color: var(--text3); }
+  .ticker-val { color: var(--text2); }
+
+  /* ── Inline SVG charts ── */
+  svg text { font-family: var(--font-mono); }
+</style>
+</head>
+<body>
+
+<div class="shell" id="app-viewer">
+
+  <!-- ── Ticker bar ── -->
+  <div class="ticker-bar">
+    <div class="ticker-scroll">
+      <div class="ticker-item"><span class="ticker-sym">NIFTY50</span><span class="ticker-val up">24,218 ▲1.2%</span></div>
+      <div class="ticker-item"><span class="ticker-sym">SENSEX</span><span class="ticker-val up">79,447 ▲0.9%</span></div>
+      <div class="ticker-item"><span class="ticker-sym">USD/INR</span><span class="ticker-val neu">83.42</span></div>
+      <div class="ticker-item"><span class="ticker-sym">GOLD</span><span class="ticker-val up">₹72,450/10g ▲0.4%</span></div>
+      <div class="ticker-item"><span class="ticker-sym">RELIANCE</span><span class="ticker-val dn">2,891 ▼0.6%</span></div>
+      <div class="ticker-item"><span class="ticker-sym">HDFC BANK</span><span class="ticker-val up">1,621 ▲1.1%</span></div>
+      <div class="ticker-item"><span class="ticker-sym">INFY</span><span class="ticker-val dn">1,448 ▼0.3%</span></div>
+      <!-- repeat for seamless loop -->
+      <div class="ticker-item"><span class="ticker-sym">NIFTY50</span><span class="ticker-val up">24,218 ▲1.2%</span></div>
+      <div class="ticker-item"><span class="ticker-sym">SENSEX</span><span class="ticker-val up">79,447 ▲0.9%</span></div>
+      <div class="ticker-item"><span class="ticker-sym">USD/INR</span><span class="ticker-val neu">83.42</span></div>
+      <div class="ticker-item"><span class="ticker-sym">GOLD</span><span class="ticker-val up">₹72,450/10g ▲0.4%</span></div>
+      <div class="ticker-item"><span class="ticker-sym">RELIANCE</span><span class="ticker-val dn">2,891 ▼0.6%</span></div>
+      <div class="ticker-item"><span class="ticker-sym">HDFC BANK</span><span class="ticker-val up">1,621 ▲1.1%</span></div>
+      <div class="ticker-item"><span class="ticker-sym">INFY</span><span class="ticker-val dn">1,448 ▼0.3%</span></div>
+    </div>
+  </div>
+
+  <!-- ── Top bar ── -->
+  <div class="topbar">
+    <span class="topbar-title">ARTHA <span>FINANCE</span></span>
+    <div class="topbar-tabs">
+      <div class="tab active">Dashboard</div>
+      <div class="tab">Accounts</div>
+      <div class="tab">Transactions</div>
+      <div class="tab">Budget</div>
+      <div class="tab">Investments</div>
+      <div class="tab">Goals</div>
+      <div class="tab">Reports</div>
+    </div>
+    <div class="topbar-right">
+      <button class="privacy-btn">BLUR ◉</button>
+      <span style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">28/04/2026 18:42</span>
+      <div class="user-avatar">RS</div>
+    </div>
+  </div>
+
+  <!-- ── Screen nav ── -->
+  <div class="screen-nav">
+    <button class="snav-btn active" onclick="scrollTo('screen-dashboard')">① Dashboard</button>
+    <button class="snav-btn" onclick="scrollTo('screen-accounts')">② Accounts</button>
+    <button class="snav-btn" onclick="scrollTo('screen-transactions')">③ Transactions</button>
+    <button class="snav-btn" onclick="scrollTo('screen-budget')">④ Budget</button>
+    <button class="snav-btn" onclick="scrollTo('screen-investments')">⑤ Investments</button>
+    <button class="snav-btn" onclick="scrollTo('screen-goals')">⑥ Goals</button>
+    <button class="snav-btn" onclick="scrollTo('screen-add-tx')">⑦ Add Transaction</button>
+    <button class="snav-btn" onclick="scrollTo('screen-mobile')">⑧ Mobile</button>
+    <button class="snav-btn" onclick="scrollTo('screen-cashflow')">⑨ Cash Flow (Sankey)</button>
+  </div>
+
+  <!-- ── Body: sidebar + scrollable screens ── -->
+  <div style="display:flex;flex:1;overflow:hidden;">
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="sidebar-logo">₹</div>
+      <div class="nav-item active" title="Dashboard">⊞</div>
+      <div class="nav-item" title="Accounts">◫</div>
+      <div class="nav-item" title="Transactions">≡</div>
+      <div class="nav-item" title="Budget">◑</div>
+      <div class="nav-item" title="Investments">△</div>
+      <div class="nav-item" title="Goals">◎</div>
+      <div class="nav-item" title="Reports">▦</div>
+      <div class="nav-spacer"></div>
+      <div class="nav-item" title="Settings">⚙</div>
+    </div>
+
+    <!-- Scrollable screens -->
+    <div class="screens-scroll" id="screens-scroll">
+
+      <!-- ═══════════════════════════════════════
+           SCREEN 1: DASHBOARD
+      ════════════════════════════════════════════ -->
+      <div class="screen-wrap" id="screen-dashboard">
+        <div class="screen-label">
+          Screen 1 — Dashboard (Home)
+          <span class="badge">DESKTOP · 1100px</span>
+        </div>
+        <div class="content" style="height:calc(100vh - 180px); overflow-y:auto;">
+
+          <!-- Top metric strip -->
+          <div class="dash-top">
+            <!-- Net Worth hero -->
+            <div class="dash-hero">
+              <div class="metric-label">Net Worth</div>
+              <div class="metric-val lg" style="margin: 4px 0 2px;">₹47,83,291</div>
+              <div class="metric-change up">▲ ₹1,24,500 &nbsp;+2.67% vs last month</div>
+              <div style="margin-top:12px;">
+                <!-- Mini sparkline -->
+                <svg width="240" height="36" class="spark">
+                  <polyline points="0,28 20,24 40,26 60,20 80,22 100,14 120,16 140,10 160,12 180,8 200,6 220,4 240,2"
+                    fill="none" stroke="var(--accent)" stroke-width="1.5" opacity="0.9"/>
+                  <polyline points="0,28 20,24 40,26 60,20 80,22 100,14 120,16 140,10 160,12 180,8 200,6 220,4 240,2 240,36 0,36"
+                    fill="url(#gold-grad)" opacity="0.15"/>
+                  <defs>
+                    <linearGradient id="gold-grad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stop-color="var(--accent)"/>
+                      <stop offset="100%" stop-color="transparent"/>
+                    </linearGradient>
+                  </defs>
+                </svg>
+                <div style="font-family:var(--font-mono);font-size:9px;color:var(--text3);margin-top:2px">12M NET WORTH TREND</div>
+              </div>
+            </div>
+
+            <!-- 3 metric tiles -->
+            <div class="dash-metric">
+              <div class="metric-label">Total Assets</div>
+              <div class="metric-val" style="margin:4px 0 2px">₹52,14,800</div>
+              <div class="metric-change up">▲ ₹1,31,000 +2.58%</div>
+              <div style="margin-top:10px;">
+                <div style="font-family:var(--font-mono);font-size:9px;color:var(--text3);margin-bottom:4px">ALLOCATION</div>
+                <div style="display:flex;gap:2px;height:6px;">
+                  <div style="background:var(--blue);width:38%;height:6px;"></div>
+                  <div style="background:var(--green);width:28%;height:6px;"></div>
+                  <div style="background:var(--accent);width:22%;height:6px;"></div>
+                  <div style="background:var(--purple);width:12%;height:6px;"></div>
+                </div>
+                <div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap;">
+                  <span style="font-size:9px;color:var(--blue);font-family:var(--font-mono)">● Invest 38%</span>
+                  <span style="font-size:9px;color:var(--green);font-family:var(--font-mono)">● Cash 28%</span>
+                  <span style="font-size:9px;color:var(--accent);font-family:var(--font-mono)">● RE 22%</span>
+                  <span style="font-size:9px;color:var(--purple);font-family:var(--font-mono)">● Other 12%</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="dash-metric">
+              <div class="metric-label">Total Liabilities</div>
+              <div class="metric-val dn" style="margin:4px 0 2px">₹4,31,509</div>
+              <div class="metric-change dn">▼ ₹6,500 this month (repaid)</div>
+              <div style="margin-top:10px;">
+                <div style="font-size:9px;color:var(--text3);font-family:var(--font-cond);letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px">BY TYPE</div>
+                <div style="display:flex;flex-direction:column;gap:4px;">
+                  <div style="display:flex;justify-content:space-between;font-size:10px;">
+                    <span style="color:var(--text2)">Home Loan</span>
+                    <span style="font-family:var(--font-mono);color:var(--red)">₹3,85,000</span>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;font-size:10px;">
+                    <span style="color:var(--text2)">Credit Cards</span>
+                    <span style="font-family:var(--font-mono);color:var(--red)">₹46,509</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="dash-metric">
+              <div class="metric-label">April 2026 — Cash Flow</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px;">
+                <div>
+                  <div style="font-size:9px;color:var(--text3);font-family:var(--font-mono)">INCOME</div>
+                  <div style="font-family:var(--font-mono);font-size:16px;color:var(--green);margin:2px 0">₹1,25,000</div>
+                </div>
+                <div>
+                  <div style="font-size:9px;color:var(--text3);font-family:var(--font-mono)">EXPENSES</div>
+                  <div style="font-family:var(--font-mono);font-size:16px;color:var(--red);margin:2px 0">₹68,420</div>
+                </div>
+              </div>
+              <div style="margin-top:6px;">
+                <div style="font-size:9px;color:var(--text3);font-family:var(--font-mono)">NET SAVINGS</div>
+                <div style="font-family:var(--font-mono);font-size:18px;color:var(--accent);margin:2px 0">₹56,580</div>
+                <div style="font-size:9px;color:var(--text2);font-family:var(--font-mono)">SAVINGS RATE: 45.3%</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Body panels -->
+          <div class="dash-body">
+            <!-- Net Worth Chart -->
+            <div class="cell" style="padding:0;">
+              <div class="section-hd">Net Worth Over Time <span class="action">12M ▾</span></div>
+              <div style="padding:10px 12px 8px;">
+                <svg width="100%" height="140" viewBox="0 0 460 140">
+                  <!-- Grid lines -->
+                  <line x1="0" y1="30" x2="460" y2="30" stroke="#1e2535" stroke-width="1"/>
+                  <line x1="0" y1="70" x2="460" y2="70" stroke="#1e2535" stroke-width="1"/>
+                  <line x1="0" y1="110" x2="460" y2="110" stroke="#1e2535" stroke-width="1"/>
+                  <!-- Net worth area -->
+                  <polyline points="0,120 38,112 76,108 114,100 152,104 190,90 228,88 266,80 304,76 342,68 380,62 418,58 460,50"
+                    fill="none" stroke="var(--accent)" stroke-width="2"/>
+                  <polygon points="0,120 38,112 76,108 114,100 152,104 190,90 228,88 266,80 304,76 342,68 380,62 418,58 460,50 460,140 0,140"
+                    fill="url(#aw-grad)" opacity="0.2"/>
+                  <!-- Assets line -->
+                  <polyline points="0,100 38,95 76,90 114,85 152,88 190,75 228,72 266,65 304,60 342,52 380,46 418,42 460,36"
+                    fill="none" stroke="var(--blue)" stroke-width="1" stroke-dasharray="4 2" opacity="0.6"/>
+                  <!-- Liabilities line -->
+                  <polyline points="0,132 38,132 76,131 114,131 152,130 190,130 228,130 266,129 304,129 342,129 380,128 418,128 460,128"
+                    fill="none" stroke="var(--red)" stroke-width="1" opacity="0.5"/>
+                  <!-- Month labels -->
+                  <text x="0" y="138" font-size="8" fill="#4a5878">May</text>
+                  <text x="76" y="138" font-size="8" fill="#4a5878">Jul</text>
+                  <text x="152" y="138" font-size="8" fill="#4a5878">Sep</text>
+                  <text x="228" y="138" font-size="8" fill="#4a5878">Nov</text>
+                  <text x="304" y="138" font-size="8" fill="#4a5878">Jan</text>
+                  <text x="380" y="138" font-size="8" fill="#4a5878">Mar</text>
+                  <text x="425" y="138" font-size="8" fill="#f0a500">Apr</text>
+                  <!-- Labels -->
+                  <text x="4" y="14" font-size="8" fill="#3a7fff">── Assets</text>
+                  <text x="70" y="14" font-size="8" fill="#f0a500">── Net Worth</text>
+                  <text x="160" y="14" font-size="8" fill="#f04060">── Liabilities</text>
+                  <defs>
+                    <linearGradient id="aw-grad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stop-color="#f0a500"/>
+                      <stop offset="100%" stop-color="transparent"/>
+                    </linearGradient>
+                  </defs>
+                </svg>
+              </div>
+            </div>
+
+            <!-- Budget status -->
+            <div class="cell" style="padding:0;">
+              <div class="section-hd">April Budget Status <span class="action">View All →</span></div>
+              <div style="padding:8px 12px;display:flex;flex-direction:column;gap:6px;">
+                <!-- Budget items -->
+                <div>
+                  <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+                    <span style="font-family:var(--font-cond);font-size:11px;color:var(--text2)">🛒 Groceries</span>
+                    <span style="font-family:var(--font-mono);font-size:10px;color:var(--green)">₹8,200 / ₹12,000</span>
+                  </div>
+                  <div class="pbar-wrap"><div class="pbar green" style="width:68%"></div></div>
+                </div>
+                <div>
+                  <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+                    <span style="font-family:var(--font-cond);font-size:11px;color:var(--text2)">🍽 Dining Out</span>
+                    <span style="font-family:var(--font-mono);font-size:10px;color:var(--accent)">₹7,800 / ₹8,000</span>
+                  </div>
+                  <div class="pbar-wrap"><div class="pbar amber" style="width:97%"></div></div>
+                </div>
+                <div>
+                  <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+                    <span style="font-family:var(--font-cond);font-size:11px;color:var(--text2)">🚗 Transport</span>
+                    <span style="font-family:var(--font-mono);font-size:10px;color:var(--red)">₹6,200 / ₹5,000 ⚠</span>
+                  </div>
+                  <div class="pbar-wrap"><div class="pbar red" style="width:100%"></div></div>
+                </div>
+                <div>
+                  <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+                    <span style="font-family:var(--font-cond);font-size:11px;color:var(--text2)">💊 Medical</span>
+                    <span style="font-family:var(--font-mono);font-size:10px;color:var(--green)">₹1,100 / ₹5,000</span>
+                  </div>
+                  <div class="pbar-wrap"><div class="pbar green" style="width:22%"></div></div>
+                </div>
+                <div>
+                  <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+                    <span style="font-family:var(--font-cond);font-size:11px;color:var(--text2)">📱 Subscriptions</span>
+                    <span style="font-family:var(--font-mono);font-size:10px;color:var(--green)">₹2,900 / ₹3,500</span>
+                  </div>
+                  <div class="pbar-wrap"><div class="pbar green" style="width:83%"></div></div>
+                </div>
+                <div>
+                  <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+                    <span style="font-family:var(--font-cond);font-size:11px;color:var(--text2)">🎭 Entertainment</span>
+                    <span style="font-family:var(--font-mono);font-size:10px;color:var(--green)">₹3,100 / ₹6,000</span>
+                  </div>
+                  <div class="pbar-wrap"><div class="pbar green" style="width:52%"></div></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Recent Transactions (spans 2 rows) -->
+            <div class="cell dash-recent" style="grid-row:span 2;">
+              <div class="section-hd">Recent Transactions <span class="action">All →</span></div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Description</th>
+                    <th class="r">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">28 Apr</td><td><div style="font-size:11px">BigBasket</div><div style="font-size:9px;color:var(--text3)">Groceries</div></td><td class="r mono dn">−₹2,840</td></tr>
+                  <tr><td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">28 Apr</td><td><div style="font-size:11px">Salary Credit</div><div style="font-size:9px;color:var(--text3)">Income · HDFC</div></td><td class="r mono up">+₹1,25,000</td></tr>
+                  <tr><td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">27 Apr</td><td><div style="font-size:11px">Zeomato</div><div style="font-size:9px;color:var(--text3)">Dining Out</div></td><td class="r mono dn">−₹680</td></tr>
+                  <tr><td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">26 Apr</td><td><div style="font-size:11px">Netflix</div><div style="font-size:9px;color:var(--text3)">Subscriptions</div></td><td class="r mono dn">−₹649</td></tr>
+                  <tr><td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">25 Apr</td><td><div style="font-size:11px">Ola / Uber</div><div style="font-size:9px;color:var(--text3)">Transport</div></td><td class="r mono dn">−₹340</td></tr>
+                  <tr><td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">24 Apr</td><td><div style="font-size:11px">SIP — HDFC MF</div><div style="font-size:9px;color:var(--text3);color:var(--purple)">Investment Buy</div></td><td class="r mono" style="color:var(--purple)">−₹10,000</td></tr>
+                  <tr><td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">23 Apr</td><td><div style="font-size:11px">Electricity Bill</div><div style="font-size:9px;color:var(--text3)">Utilities</div></td><td class="r mono dn">−₹2,180</td></tr>
+                  <tr><td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">22 Apr</td><td><div style="font-size:11px">HDFC CC Payment</div><div style="font-size:9px;color:var(--text3);color:var(--blue)">Transfer</div></td><td class="r mono" style="color:var(--blue)">₹25,000</td></tr>
+                  <tr><td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">21 Apr</td><td><div style="font-size:11px">Apollo Pharmacy</div><div style="font-size:9px;color:var(--text3)">Medical</div></td><td class="r mono dn">−₹1,100</td></tr>
+                  <tr><td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">20 Apr</td><td><div style="font-size:11px">Dividend — Infy</div><div style="font-size:9px;color:var(--text3);color:var(--cyan)">Dividend</div></td><td class="r mono" style="color:var(--cyan)">+₹4,200</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Cash Flow bars -->
+            <div class="cell" style="padding:0;">
+              <div class="section-hd">Monthly Cash Flow — Last 6 Months <span class="action">Expand</span></div>
+              <div style="padding:10px 12px;">
+                <svg width="100%" height="150" viewBox="0 0 460 150">
+                  <!-- Nov -->
+                  <rect x="10" y="40" width="22" height="85" fill="var(--green)" opacity="0.7"/>
+                  <rect x="34" y="90" width="22" height="35" fill="var(--red)" opacity="0.7"/>
+                  <!-- Dec -->
+                  <rect x="87" y="35" width="22" height="90" fill="var(--green)" opacity="0.7"/>
+                  <rect x="111" y="95" width="22" height="30" fill="var(--red)" opacity="0.7"/>
+                  <!-- Jan -->
+                  <rect x="164" y="30" width="22" height="95" fill="var(--green)" opacity="0.7"/>
+                  <rect x="188" y="80" width="22" height="45" fill="var(--red)" opacity="0.7"/>
+                  <!-- Feb -->
+                  <rect x="241" y="38" width="22" height="87" fill="var(--green)" opacity="0.7"/>
+                  <rect x="265" y="88" width="22" height="37" fill="var(--red)" opacity="0.7"/>
+                  <!-- Mar -->
+                  <rect x="318" y="25" width="22" height="100" fill="var(--green)" opacity="0.7"/>
+                  <rect x="342" y="85" width="22" height="40" fill="var(--red)" opacity="0.7"/>
+                  <!-- Apr (current) -->
+                  <rect x="395" y="20" width="22" height="105" fill="var(--green)"/>
+                  <rect x="419" y="75" width="22" height="50" fill="var(--red)"/>
+                  <!-- Labels -->
+                  <text x="20" y="135" font-size="8" fill="#4a5878" text-anchor="middle">Nov</text>
+                  <text x="97" y="135" font-size="8" fill="#4a5878" text-anchor="middle">Dec</text>
+                  <text x="174" y="135" font-size="8" fill="#4a5878" text-anchor="middle">Jan</text>
+                  <text x="251" y="135" font-size="8" fill="#4a5878" text-anchor="middle">Feb</text>
+                  <text x="328" y="135" font-size="8" fill="#4a5878" text-anchor="middle">Mar</text>
+                  <text x="406" y="135" font-size="8" fill="#f0a500" text-anchor="middle">Apr</text>
+                  <!-- Legend -->
+                  <rect x="0" y="142" width="8" height="5" fill="var(--green)" opacity="0.7"/>
+                  <text x="12" y="148" font-size="8" fill="#7a8fb5">Income</text>
+                  <rect x="55" y="142" width="8" height="5" fill="var(--red)" opacity="0.7"/>
+                  <text x="67" y="148" font-size="8" fill="#7a8fb5">Expenses</text>
+                </svg>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+      <div class="screen-divider"></div>
+
+      <!-- ═══════════════════════════════════════
+           SCREEN 2: ACCOUNTS
+      ════════════════════════════════════════════ -->
+      <div class="screen-wrap" id="screen-accounts">
+        <div class="screen-label">Screen 2 — Accounts &amp; Balance Sheet <span class="badge">DESKTOP · 900px</span></div>
+        <div class="content" style="height:calc(100vh - 180px); overflow-y:auto;">
+          <div class="accounts-layout">
+            <!-- Left: account list -->
+            <div class="cell">
+              <!-- Summary strip -->
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--border);border-bottom:1px solid var(--border);">
+                <div style="background:var(--bg3);padding:10px 14px;">
+                  <div class="metric-label">Total Assets</div>
+                  <div class="metric-val sm up" style="margin-top:2px">₹52,14,800</div>
+                </div>
+                <div style="background:var(--bg3);padding:10px 14px;">
+                  <div class="metric-label">Total Liabilities</div>
+                  <div class="metric-val sm dn" style="margin-top:2px">₹4,31,509</div>
+                </div>
+                <div style="background:var(--bg3);padding:10px 14px;">
+                  <div class="metric-label">Net Worth</div>
+                  <div class="metric-val sm" style="margin-top:2px;color:var(--accent)">₹47,83,291</div>
+                </div>
+              </div>
+
+              <!-- ASSETS -->
+              <div class="acc-group-hd">Assets <span style="color:var(--green)">₹52,14,800</span></div>
+              <div class="acc-group-hd" style="background:var(--bg2);padding-left:20px;font-size:8px;color:var(--blue)">Cash &amp; Bank <span style="color:var(--text2)">₹14,60,000</span></div>
+              <table>
+                <thead>
+                  <tr><th>Account</th><th>Currency</th><th class="r">Balance</th><th class="r">INR Value</th><th>Last Updated</th></tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><div style="display:flex;align-items:center;gap:6px;"><div style="width:6px;height:6px;background:var(--blue);flex-shrink:0;"></div>HDFC Savings</div></td>
+                    <td><span class="tag">INR</span></td>
+                    <td class="r mono">₹8,42,000</td>
+                    <td class="r mono up">₹8,42,000</td>
+                    <td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">28 Apr 2026</td>
+                  </tr>
+                  <tr>
+                    <td><div style="display:flex;align-items:center;gap:6px;"><div style="width:6px;height:6px;background:var(--cyan);flex-shrink:0;"></div>SBI Current</div></td>
+                    <td><span class="tag">INR</span></td>
+                    <td class="r mono">₹4,18,000</td>
+                    <td class="r mono up">₹4,18,000</td>
+                    <td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">28 Apr 2026</td>
+                  </tr>
+                  <tr>
+                    <td><div style="display:flex;align-items:center;gap:6px;"><div style="width:6px;height:6px;background:var(--green);flex-shrink:0;"></div>USD Savings</div></td>
+                    <td><span class="tag">USD</span></td>
+                    <td class="r mono">$2,390</td>
+                    <td class="r mono up">₹2,00,000</td>
+                    <td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">27 Apr 2026</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div class="acc-group-hd" style="background:var(--bg2);padding-left:20px;font-size:8px;color:var(--purple)">Investments <span style="color:var(--text2)">₹19,80,000</span></div>
+              <table>
+                <tbody>
+                  <tr>
+                    <td><div style="display:flex;align-items:center;gap:6px;"><div style="width:6px;height:6px;background:var(--purple);flex-shrink:0;"></div>Zerodha Demat</div></td>
+                    <td><span class="tag">INR</span></td>
+                    <td class="r mono">₹12,40,000</td>
+                    <td class="r mono up">₹12,40,000</td>
+                    <td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">28 Apr 2026</td>
+                  </tr>
+                  <tr>
+                    <td><div style="display:flex;align-items:center;gap:6px;"><div style="width:6px;height:6px;background:var(--accent);flex-shrink:0;"></div>HDFC MF</div></td>
+                    <td><span class="tag">INR</span></td>
+                    <td class="r mono">₹7,40,000</td>
+                    <td class="r mono up">₹7,40,000</td>
+                    <td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">28 Apr 2026</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div class="acc-group-hd" style="background:var(--bg2);padding-left:20px;font-size:8px;color:var(--accent)">Real Estate <span style="color:var(--text2)">₹11,50,000</span></div>
+              <table>
+                <tbody>
+                  <tr>
+                    <td><div style="display:flex;align-items:center;gap:6px;"><div style="width:6px;height:6px;background:var(--accent);flex-shrink:0;"></div>Flat — Whitefield</div></td>
+                    <td><span class="tag">INR</span></td>
+                    <td class="r mono">₹11,50,000</td>
+                    <td class="r mono up">₹11,50,000</td>
+                    <td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">01 Mar 2026 <span style="color:var(--text3)">(manual)</span></td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <!-- LIABILITIES -->
+              <div class="acc-group-hd" style="margin-top:1px">Liabilities <span style="color:var(--red)">₹4,31,509</span></div>
+              <div class="acc-group-hd" style="background:var(--bg2);padding-left:20px;font-size:8px;color:var(--red)">Loans <span style="color:var(--text2)">₹3,85,000</span></div>
+              <table>
+                <tbody>
+                  <tr>
+                    <td><div style="display:flex;align-items:center;gap:6px;"><div style="width:6px;height:6px;background:var(--red);flex-shrink:0;"></div>SBI Home Loan</div></td>
+                    <td><span class="tag">INR</span></td>
+                    <td class="r mono dn">₹3,85,000</td>
+                    <td class="r mono dn">₹3,85,000</td>
+                    <td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">28 Apr 2026</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div class="acc-group-hd" style="background:var(--bg2);padding-left:20px;font-size:8px;color:var(--red)">Credit Cards <span style="color:var(--text2)">₹46,509</span></div>
+              <table>
+                <tbody>
+                  <tr>
+                    <td><div style="display:flex;align-items:center;gap:6px;"><div style="width:6px;height:6px;background:#f06030;flex-shrink:0;"></div>HDFC Diners</div></td>
+                    <td><span class="tag">INR</span></td>
+                    <td class="r mono dn">₹46,509</td>
+                    <td class="r mono dn">₹46,509</td>
+                    <td style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">28 Apr 2026</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Right: allocation sidebar -->
+            <div class="cell" style="padding:0;border-left:1px solid var(--border);">
+              <div class="section-hd">Asset Allocation</div>
+              <div style="padding:14px;display:flex;flex-direction:column;gap:12px;">
+                <svg width="180" height="180" viewBox="0 0 180 180" style="display:block;margin:0 auto;">
+                  <!-- Donut segments approx: Invest 38%, Cash 28%, RE 22%, Other 12% -->
+                  <circle cx="90" cy="90" r="60" fill="none" stroke="var(--border)" stroke-width="28"/>
+                  <!-- Each stroke-dasharray = percent * circumference (376.99) -->
+                  <circle cx="90" cy="90" r="60" fill="none" stroke="var(--blue)" stroke-width="28"
+                    stroke-dasharray="143 234" stroke-dashoffset="0" transform="rotate(-90 90 90)"/>
+                  <circle cx="90" cy="90" r="60" fill="none" stroke="var(--green)" stroke-width="28"
+                    stroke-dasharray="105 272" stroke-dashoffset="-143" transform="rotate(-90 90 90)"/>
+                  <circle cx="90" cy="90" r="60" fill="none" stroke="var(--accent)" stroke-width="28"
+                    stroke-dasharray="83 294" stroke-dashoffset="-248" transform="rotate(-90 90 90)"/>
+                  <circle cx="90" cy="90" r="60" fill="none" stroke="var(--purple)" stroke-width="28"
+                    stroke-dasharray="45 332" stroke-dashoffset="-331" transform="rotate(-90 90 90)"/>
+                  <text x="90" y="88" text-anchor="middle" font-size="18" fill="var(--text)" font-family="IBM Plex Mono" font-weight="400">38%</text>
+                  <text x="90" y="102" text-anchor="middle" font-size="9" fill="var(--text3)" font-family="IBM Plex Sans Condensed" letter-spacing="1">INVEST</text>
+                </svg>
+                <div style="display:flex;flex-direction:column;gap:6px;">
+                  <div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;">
+                    <span style="display:flex;align-items:center;gap:6px;"><span style="display:inline-block;width:8px;height:8px;background:var(--blue);"></span><span style="color:var(--text2)">Investments</span></span>
+                    <span style="font-family:var(--font-mono);font-size:11px;color:var(--text)">38% · ₹19.8L</span>
+                  </div>
+                  <div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;">
+                    <span style="display:flex;align-items:center;gap:6px;"><span style="display:inline-block;width:8px;height:8px;background:var(--green);"></span><span style="color:var(--text2)">Cash &amp; Bank</span></span>
+                    <span style="font-family:var(--font-mono);font-size:11px;color:var(--text)">28% · ₹14.6L</span>
+                  </div>
+                  <div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;">
+                    <span style="display:flex;align-items:center;gap:6px;"><span style="display:inline-block;width:8px;height:8px;background:var(--accent);"></span><span style="color:var(--text2)">Real Estate</span></span>
+                    <span style="font-family:var(--font-mono);font-size:11px;color:var(--text)">22% · ₹11.5L</span>
+                  </div>
+                  <div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;">
+                    <span style="display:flex;align-items:center;gap:6px;"><span style="display:inline-block;width:8px;height:8px;background:var(--purple);"></span><span style="color:var(--text2)">Other Assets</span></span>
+                    <span style="font-family:var(--font-mono);font-size:11px;color:var(--text)">12% · ₹6.2L</span>
+                  </div>
+                </div>
+                <div style="border-top:1px solid var(--border);padding-top:10px;">
+                  <div class="section-hd" style="border:none;padding:0 0 6px;font-size:9px;">Loan Progress</div>
+                  <div style="font-size:10px;color:var(--text2);margin-bottom:4px">SBI Home Loan</div>
+                  <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:10px;margin-bottom:3px;">
+                    <span style="color:var(--text3)">Paid ₹15.1L</span>
+                    <span style="color:var(--red)">Due ₹3.85L</span>
+                  </div>
+                  <div class="pbar-wrap" style="height:5px;"><div class="pbar green" style="width:80%;height:5px;"></div></div>
+                  <div style="font-family:var(--font-mono);font-size:9px;color:var(--text3);margin-top:3px">Projected payoff: Sep 2027</div>
+                </div>
+                <button class="btn btn-primary" style="width:100%;margin-top:4px">+ Add Account</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="screen-divider"></div>
+
+      <!-- ═══════════════════════════════════════
+           SCREEN 3: TRANSACTIONS
+      ════════════════════════════════════════════ -->
+      <div class="screen-wrap" id="screen-transactions">
+        <div class="screen-label">Screen 3 — Transactions <span class="badge">DESKTOP · 1000px</span></div>
+        <div class="content" style="height:calc(100vh - 180px);overflow-y:auto;">
+          <!-- Filter bar -->
+          <div class="tx-filters">
+            <div class="search-box">
+              <span style="color:var(--text3);font-size:12px">⌕</span>
+              <input type="text" placeholder="Search description, category…">
+            </div>
+            <div class="filter-chip on">Apr 2026 ✕</div>
+            <div class="filter-chip">Account ▾</div>
+            <div class="filter-chip">Category ▾</div>
+            <div class="filter-chip">Type ▾</div>
+            <div class="filter-chip">₹ Range ▾</div>
+            <div class="filter-chip">Tags ▾</div>
+            <div style="margin-left:auto;display:flex;gap:6px;">
+              <button class="btn btn-ghost" style="font-size:10px">⬇ CSV</button>
+              <button class="btn btn-primary">+ Add</button>
+            </div>
+          </div>
+
+          <!-- Summary row -->
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:1px;background:var(--border);border-bottom:1px solid var(--border);">
+            <div style="background:var(--bg3);padding:8px 14px;">
+              <div class="metric-label">Transactions</div>
+              <div style="font-family:var(--font-mono);font-size:18px;color:var(--text);margin-top:2px">47</div>
+            </div>
+            <div style="background:var(--bg3);padding:8px 14px;">
+              <div class="metric-label">Total Income</div>
+              <div style="font-family:var(--font-mono);font-size:18px;color:var(--green);margin-top:2px">+₹1,25,000</div>
+            </div>
+            <div style="background:var(--bg3);padding:8px 14px;">
+              <div class="metric-label">Total Expenses</div>
+              <div style="font-family:var(--font-mono);font-size:18px;color:var(--red);margin-top:2px">−₹68,420</div>
+            </div>
+            <div style="background:var(--bg3);padding:8px 14px;">
+              <div class="metric-label">Net</div>
+              <div style="font-family:var(--font-mono);font-size:18px;color:var(--accent);margin-top:2px">+₹56,580</div>
+            </div>
+          </div>
+
+          <!-- Bulk action bar (hidden until selection) -->
+          <div style="background:var(--bg4);border-bottom:1px solid var(--border);padding:5px 12px;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text3);">
+            <input type="checkbox" style="width:12px;height:12px;accent-color:var(--accent)"> Select All &nbsp;·&nbsp; <span style="color:var(--text2)">0 selected</span>
+            <span style="margin-left:8px;opacity:.4">Bulk: Categorise &nbsp;·&nbsp; Tag &nbsp;·&nbsp; Delete</span>
+          </div>
+
+          <!-- Transaction table -->
+          <table>
+            <thead>
+              <tr>
+                <th style="width:16px;"></th>
+                <th>Date ▾</th>
+                <th>Description</th>
+                <th>Account</th>
+                <th>Category</th>
+                <th>Type</th>
+                <th>Tags</th>
+                <th class="r">Amount</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><input type="checkbox" style="width:11px;height:11px;accent-color:var(--accent)"></td>
+                <td class="mono" style="color:var(--text3);font-size:10px">28/04/2026</td>
+                <td><div style="font-size:12px">Salary Credit — TechCorp India</div></td>
+                <td style="font-size:11px;color:var(--text2)">HDFC Savings</td>
+                <td><span class="tag" style="background:rgba(0,200,150,.1);color:var(--green)">Salary</span></td>
+                <td><span class="tag income">Income</span></td>
+                <td><span class="tag">#salary</span></td>
+                <td class="r mono up">+₹1,25,000</td>
+                <td style="font-size:12px;color:var(--text3);cursor:pointer">⋯</td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" style="width:11px;height:11px;accent-color:var(--accent)"></td>
+                <td class="mono" style="color:var(--text3);font-size:10px">28/04/2026</td>
+                <td><div style="font-size:12px">BigBasket</div></td>
+                <td style="font-size:11px;color:var(--text2)">HDFC Diners CC</td>
+                <td><span class="tag" style="background:rgba(240,64,96,.1);color:var(--red)">Groceries</span></td>
+                <td><span class="tag expense">Expense</span></td>
+                <td><span class="tag">#groceries</span></td>
+                <td class="r mono dn">−₹2,840</td>
+                <td style="font-size:12px;color:var(--text3);cursor:pointer">⋯</td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" style="width:11px;height:11px;accent-color:var(--accent)"></td>
+                <td class="mono" style="color:var(--text3);font-size:10px">24/04/2026</td>
+                <td>
+                  <div style="font-size:12px">SIP — HDFC Flexi Cap Fund</div>
+                  <div style="font-size:9px;color:var(--text3)">Split: 10,000</div>
+                </td>
+                <td style="font-size:11px;color:var(--text2)">HDFC MF</td>
+                <td><span class="tag" style="background:rgba(144,96,240,.1);color:var(--purple)">MF SIP</span></td>
+                <td><span class="tag invest">Invest Buy</span></td>
+                <td><span class="tag">#sip</span> <span class="tag">#mf</span></td>
+                <td class="r mono" style="color:var(--purple)">−₹10,000</td>
+                <td style="font-size:12px;color:var(--text3);cursor:pointer">⋯</td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" style="width:11px;height:11px;accent-color:var(--accent)"></td>
+                <td class="mono" style="color:var(--text3);font-size:10px">22/04/2026</td>
+                <td><div style="font-size:12px">HDFC CC Payment</div></td>
+                <td style="font-size:11px;color:var(--text2)">HDFC Savings → CC</td>
+                <td><span style="font-size:10px;color:var(--text3)">—</span></td>
+                <td><span class="tag transfer">Transfer</span></td>
+                <td></td>
+                <td class="r mono" style="color:var(--blue)">₹25,000</td>
+                <td style="font-size:12px;color:var(--text3);cursor:pointer">⋯</td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" style="width:11px;height:11px;accent-color:var(--accent)"></td>
+                <td class="mono" style="color:var(--text3);font-size:10px">20/04/2026</td>
+                <td><div style="font-size:12px">Infosys — Dividend</div></td>
+                <td style="font-size:11px;color:var(--text2)">Zerodha Demat</td>
+                <td><span class="tag" style="background:rgba(0,184,212,.1);color:var(--cyan)">Dividends</span></td>
+                <td><span class="tag" style="background:rgba(0,184,212,.1);color:var(--cyan)">Dividend</span></td>
+                <td><span class="tag">#dividend</span></td>
+                <td class="r mono" style="color:var(--cyan)">+₹4,200</td>
+                <td style="font-size:12px;color:var(--text3);cursor:pointer">⋯</td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" style="width:11px;height:11px;accent-color:var(--accent)"></td>
+                <td class="mono" style="color:var(--text3);font-size:10px">18/04/2026</td>
+                <td>
+                  <div style="font-size:12px">Supermart Bill <span style="font-size:9px;color:var(--text3)">(split)</span></div>
+                  <div style="font-size:9px;color:var(--text3)">₹2,200 Groceries + ₹800 Household</div>
+                </td>
+                <td style="font-size:11px;color:var(--text2)">HDFC Diners CC</td>
+                <td><span class="tag" style="background:rgba(240,64,96,.1);color:var(--red)">Groceries</span></td>
+                <td><span class="tag expense">Expense</span></td>
+                <td></td>
+                <td class="r mono dn">−₹3,000</td>
+                <td style="font-size:12px;color:var(--text3);cursor:pointer">⋯</td>
+              </tr>
+              <tr style="opacity:.5">
+                <td colspan="9" style="text-align:center;padding:8px;font-size:10px;color:var(--text3);font-family:var(--font-mono)">
+                  … 41 more transactions · showing 6 of 47
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="screen-divider"></div>
+
+      <!-- ═══════════════════════════════════════
+           SCREEN 4: BUDGET
+      ════════════════════════════════════════════ -->
+      <div class="screen-wrap" id="screen-budget">
+        <div class="screen-label">Screen 4 — Budget <span class="badge">DESKTOP · 960px</span></div>
+        <div class="content" style="height:calc(100vh - 180px);overflow-y:auto;">
+          <!-- Month nav -->
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--bg2);border-bottom:1px solid var(--border);">
+            <button class="btn btn-ghost" style="padding:3px 8px">◀</button>
+            <span style="font-family:var(--font-cond);font-size:13px;font-weight:600;letter-spacing:.06em;color:var(--text)">APRIL 2026</span>
+            <button class="btn btn-ghost" style="padding:3px 8px">▶</button>
+            <span style="font-family:var(--font-mono);font-size:10px;color:var(--text3);margin-left:4px">28 days elapsed / 30 (93%)</span>
+            <div style="margin-left:auto;display:flex;gap:6px;">
+              <button class="btn btn-ghost">Monthly Override</button>
+              <button class="btn btn-primary">Edit Base Budget</button>
+            </div>
+          </div>
+
+          <div class="budget-layout">
+            <!-- Budget grid -->
+            <div class="cell">
+              <!-- Summary -->
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);border-bottom:1px solid var(--border);">
+                <div style="background:var(--bg3);padding:8px 12px;">
+                  <div class="metric-label">Total Budget</div>
+                  <div style="font-family:var(--font-mono);font-size:16px;color:var(--text);margin-top:2px">₹85,000</div>
+                </div>
+                <div style="background:var(--bg3);padding:8px 12px;">
+                  <div class="metric-label">Spent</div>
+                  <div style="font-family:var(--font-mono);font-size:16px;color:var(--red);margin-top:2px">₹68,420</div>
+                </div>
+                <div style="background:var(--bg3);padding:8px 12px;">
+                  <div class="metric-label">Remaining</div>
+                  <div style="font-family:var(--font-mono);font-size:16px;color:var(--green);margin-top:2px">₹16,580</div>
+                </div>
+                <div style="background:var(--bg3);padding:8px 12px;">
+                  <div class="metric-label">% Used</div>
+                  <div style="font-family:var(--font-mono);font-size:16px;color:var(--accent);margin-top:2px">80.5%</div>
+                  <div style="font-size:9px;color:var(--text3);font-family:var(--font-mono)">expected: 93%</div>
+                </div>
+              </div>
+
+              <!-- Category cards grid -->
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);">
+                <!-- Each category card -->
+                <div style="background:var(--bg2);padding:10px 12px;">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                    <span style="font-family:var(--font-cond);font-size:12px;font-weight:600;color:var(--text)">🛒 Groceries</span>
+                    <span style="font-size:9px;font-family:var(--font-mono);color:var(--green)">68%</span>
+                  </div>
+                  <div class="pbar-wrap" style="height:4px;margin-bottom:6px;"><div class="pbar green" style="width:68%;height:4px;"></div></div>
+                  <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:10px;">
+                    <span style="color:var(--text2)">₹8,200</span><span style="color:var(--text3)">/ ₹12,000</span>
+                  </div>
+                  <div style="font-size:9px;color:var(--green);font-family:var(--font-mono);margin-top:3px">✓ Under budget</div>
+                </div>
+
+                <div style="background:var(--bg2);padding:10px 12px;">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                    <span style="font-family:var(--font-cond);font-size:12px;font-weight:600;color:var(--text)">🍽 Dining Out</span>
+                    <span style="font-size:9px;font-family:var(--font-mono);color:var(--accent)">97%</span>
+                  </div>
+                  <div class="pbar-wrap" style="height:4px;margin-bottom:6px;"><div class="pbar amber" style="width:97%;height:4px;"></div></div>
+                  <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:10px;">
+                    <span style="color:var(--text2)">₹7,800</span><span style="color:var(--text3)">/ ₹8,000</span>
+                  </div>
+                  <div style="font-size:9px;color:var(--accent);font-family:var(--font-mono);margin-top:3px">⚠ Near limit</div>
+                </div>
+
+                <div style="background:var(--bg2);padding:10px 12px;border:1px solid rgba(240,64,96,.25);">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                    <span style="font-family:var(--font-cond);font-size:12px;font-weight:600;color:var(--text)">🚗 Transport</span>
+                    <span style="font-size:9px;font-family:var(--font-mono);color:var(--red)">124%</span>
+                  </div>
+                  <div class="pbar-wrap" style="height:4px;margin-bottom:6px;"><div class="pbar red" style="width:100%;height:4px;"></div></div>
+                  <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:10px;">
+                    <span style="color:var(--red)">₹6,200</span><span style="color:var(--text3)">/ ₹5,000</span>
+                  </div>
+                  <div style="font-size:9px;color:var(--red);font-family:var(--font-mono);margin-top:3px">✗ Over by ₹1,200</div>
+                </div>
+
+                <div style="background:var(--bg2);padding:10px 12px;">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                    <span style="font-family:var(--font-cond);font-size:12px;font-weight:600;color:var(--text)">💊 Medical</span>
+                    <span style="font-size:9px;font-family:var(--font-mono);color:var(--green)">22%</span>
+                  </div>
+                  <div class="pbar-wrap" style="height:4px;margin-bottom:6px;"><div class="pbar green" style="width:22%;height:4px;"></div></div>
+                  <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:10px;">
+                    <span style="color:var(--text2)">₹1,100</span><span style="color:var(--text3)">/ ₹5,000</span>
+                  </div>
+                  <div style="font-size:9px;color:var(--green);font-family:var(--font-mono);margin-top:3px">✓ Well within</div>
+                </div>
+
+                <div style="background:var(--bg2);padding:10px 12px;">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                    <span style="font-family:var(--font-cond);font-size:12px;font-weight:600;color:var(--text)">🎭 Entertainment</span>
+                    <span style="font-size:9px;font-family:var(--font-mono);color:var(--green)">52%</span>
+                  </div>
+                  <div class="pbar-wrap" style="height:4px;margin-bottom:6px;"><div class="pbar green" style="width:52%;height:4px;"></div></div>
+                  <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:10px;">
+                    <span style="color:var(--text2)">₹3,100</span><span style="color:var(--text3)">/ ₹6,000</span>
+                  </div>
+                  <div style="font-size:9px;color:var(--green);font-family:var(--font-mono);margin-top:3px">✓ Under budget</div>
+                </div>
+
+                <div style="background:var(--bg2);padding:10px 12px;">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                    <span style="font-family:var(--font-cond);font-size:12px;font-weight:600;color:var(--text)">📱 Subscriptions</span>
+                    <span style="font-size:9px;font-family:var(--font-mono);color:var(--green)">83%</span>
+                  </div>
+                  <div class="pbar-wrap" style="height:4px;margin-bottom:6px;"><div class="pbar green" style="width:83%;height:4px;"></div></div>
+                  <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:10px;">
+                    <span style="color:var(--text2)">₹2,900</span><span style="color:var(--text3)">/ ₹3,500</span>
+                  </div>
+                  <div style="font-size:9px;color:var(--green);font-family:var(--font-mono);margin-top:3px">✓ On track</div>
+                </div>
+              </div>
+
+              <!-- Budget history table -->
+              <div class="section-hd" style="margin-top:1px">Budget History — Last 6 Months</div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Category</th>
+                    <th class="r">Nov</th><th class="r">Dec</th><th class="r">Jan</th><th class="r">Feb</th><th class="r">Mar</th>
+                    <th class="r" style="color:var(--accent)">Apr</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td style="font-size:11px">🛒 Groceries</td>
+                    <td class="r mono" style="font-size:10px;color:var(--green)">78%</td>
+                    <td class="r mono" style="font-size:10px;color:var(--accent)">92%</td>
+                    <td class="r mono" style="font-size:10px;color:var(--green)">65%</td>
+                    <td class="r mono" style="font-size:10px;color:var(--green)">71%</td>
+                    <td class="r mono" style="font-size:10px;color:var(--green)">80%</td>
+                    <td class="r mono" style="font-size:10px;color:var(--green)">68%</td>
+                  </tr>
+                  <tr><td style="font-size:11px">🍽 Dining Out</td>
+                    <td class="r mono" style="font-size:10px;color:var(--red)">110%</td>
+                    <td class="r mono" style="font-size:10px;color:var(--red)">118%</td>
+                    <td class="r mono" style="font-size:10px;color:var(--green)">75%</td>
+                    <td class="r mono" style="font-size:10px;color:var(--accent)">88%</td>
+                    <td class="r mono" style="font-size:10px;color:var(--accent)">94%</td>
+                    <td class="r mono" style="font-size:10px;color:var(--accent)">97%</td>
+                  </tr>
+                  <tr><td style="font-size:11px">🚗 Transport</td>
+                    <td class="r mono" style="font-size:10px;color:var(--green)">82%</td>
+                    <td class="r mono" style="font-size:10px;color:var(--green)">79%</td>
+                    <td class="r mono" style="font-size:10px;color:var(--red)">108%</td>
+                    <td class="r mono" style="font-size:10px;color:var(--green)">90%</td>
+                    <td class="r mono" style="font-size:10px;color:var(--red)">112%</td>
+                    <td class="r mono" style="font-size:10px;color:var(--red)">124%</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Right: savings rate -->
+            <div class="cell" style="padding:0;border-left:1px solid var(--border);">
+              <div class="section-hd">Savings Rate Trend</div>
+              <div style="padding:12px;">
+                <svg width="100%" height="120" viewBox="0 0 240 120">
+                  <line x1="0" y1="30" x2="240" y2="30" stroke="var(--border)" stroke-width="1"/>
+                  <line x1="0" y1="60" x2="240" y2="60" stroke="var(--border)" stroke-width="1"/>
+                  <line x1="0" y1="90" x2="240" y2="90" stroke="var(--border)" stroke-width="1"/>
+                  <text x="2" y="28" font-size="7" fill="#4a5878">60%</text>
+                  <text x="2" y="58" font-size="7" fill="#4a5878">40%</text>
+                  <text x="2" y="88" font-size="7" fill="#4a5878">20%</text>
+                  <polyline points="20,55 60,42 100,65 140,50 180,38 220,32"
+                    fill="none" stroke="var(--green)" stroke-width="2"/>
+                  <polygon points="20,55 60,42 100,65 140,50 180,38 220,32 220,110 20,110"
+                    fill="url(#gr-grad)" opacity="0.15"/>
+                  <text x="18" y="116" font-size="7" fill="#4a5878">Nov</text>
+                  <text x="58" y="116" font-size="7" fill="#4a5878">Dec</text>
+                  <text x="98" y="116" font-size="7" fill="#4a5878">Jan</text>
+                  <text x="138" y="116" font-size="7" fill="#4a5878">Feb</text>
+                  <text x="178" y="116" font-size="7" fill="#4a5878">Mar</text>
+                  <text x="215" y="116" font-size="7" fill="var(--accent)">Apr</text>
+                  <defs><linearGradient id="gr-grad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--green)"/><stop offset="100%" stop-color="transparent"/></linearGradient></defs>
+                </svg>
+                <div style="margin-top:6px;display:flex;flex-direction:column;gap:4px;">
+                  <div style="display:flex;justify-content:space-between;font-size:10px;font-family:var(--font-mono)">
+                    <span style="color:var(--text3)">This Month</span><span style="color:var(--green)">45.3%</span>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;font-size:10px;font-family:var(--font-mono)">
+                    <span style="color:var(--text3)">6M Average</span><span style="color:var(--text2)">39.8%</span>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;font-size:10px;font-family:var(--font-mono)">
+                    <span style="color:var(--text3)">Best Month</span><span style="color:var(--green)">48.1% (Mar)</span>
+                  </div>
+                </div>
+              </div>
+              <div class="section-hd" style="margin-top:4px">Unbudgeted Spend</div>
+              <div style="padding:10px 12px;">
+                <table>
+                  <tbody>
+                    <tr><td style="font-size:11px;color:var(--text2)">Education</td><td class="r mono dn" style="font-size:10px">₹4,200</td></tr>
+                    <tr><td style="font-size:11px;color:var(--text2)">Gifts</td><td class="r mono dn" style="font-size:10px">₹2,500</td></tr>
+                    <tr><td style="font-size:11px;color:var(--text2)">Home Repair</td><td class="r mono dn" style="font-size:10px">₹1,800</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="screen-divider"></div>
+
+      <!-- ═══════════════════════════════════════
+           SCREEN 5: INVESTMENTS
+      ════════════════════════════════════════════ -->
+      <div class="screen-wrap" id="screen-investments">
+        <div class="screen-label">Screen 5 — Investment Portfolio <span class="badge">DESKTOP · 1100px</span></div>
+        <div class="content" style="height:calc(100vh - 180px);overflow-y:auto;">
+          <!-- Summary strip -->
+          <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:var(--border);border-bottom:1px solid var(--border);">
+            <div style="background:var(--bg3);padding:8px 12px;">
+              <div class="metric-label">Invested Value</div>
+              <div style="font-family:var(--font-mono);font-size:15px;color:var(--text);margin-top:2px">₹16,40,000</div>
+            </div>
+            <div style="background:var(--bg3);padding:8px 12px;">
+              <div class="metric-label">Current Value</div>
+              <div style="font-family:var(--font-mono);font-size:15px;color:var(--green);margin-top:2px">₹19,80,000</div>
+            </div>
+            <div style="background:var(--bg3);padding:8px 12px;">
+              <div class="metric-label">Unrealised P&amp;L</div>
+              <div style="font-family:var(--font-mono);font-size:15px;color:var(--green);margin-top:2px">+₹3,40,000</div>
+              <div style="font-size:9px;color:var(--green);font-family:var(--font-mono)">+20.7%</div>
+            </div>
+            <div style="background:var(--bg3);padding:8px 12px;">
+              <div class="metric-label">Realised P&amp;L</div>
+              <div style="font-family:var(--font-mono);font-size:15px;color:var(--green);margin-top:2px">+₹82,000</div>
+            </div>
+            <div style="background:var(--bg3);padding:8px 12px;">
+              <div class="metric-label">Dividends</div>
+              <div style="font-family:var(--font-mono);font-size:15px;color:var(--cyan);margin-top:2px">₹24,500</div>
+            </div>
+            <div style="background:var(--bg3);padding:8px 12px;">
+              <div class="metric-label">Portfolio XIRR</div>
+              <div style="font-family:var(--font-mono);font-size:15px;color:var(--accent);margin-top:2px">18.4%</div>
+              <div style="font-size:9px;color:var(--text3);font-family:var(--font-mono)">annualised</div>
+            </div>
+          </div>
+
+          <div class="inv-layout">
+            <!-- Holdings table -->
+            <div class="cell">
+              <div class="section-hd">Holdings <span class="action">+ Record Price</span></div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Instrument</th><th>Type</th><th class="r">Qty</th>
+                    <th class="r">Avg Buy</th><th class="r">CMP</th>
+                    <th class="r">Invested</th><th class="r">Current</th>
+                    <th class="r">Unreal P&amp;L</th><th class="r">XIRR</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><div style="font-size:12px;font-weight:500">Reliance Ind.</div><div style="font-size:9px;color:var(--text3)">RELIANCE · Equity</div></td>
+                    <td><span class="tag">Equity</span></td>
+                    <td class="r mono">120</td>
+                    <td class="r mono">₹2,420</td>
+                    <td class="r mono">₹2,891</td>
+                    <td class="r mono">₹2,90,400</td>
+                    <td class="r mono up">₹3,46,920</td>
+                    <td class="r mono up">+₹56,520 <span style="font-size:9px">(+19.5%)</span></td>
+                    <td class="r mono up">22.1%</td>
+                  </tr>
+                  <tr>
+                    <td><div style="font-size:12px;font-weight:500">Infosys Ltd.</div><div style="font-size:9px;color:var(--text3)">INFY · Equity</div></td>
+                    <td><span class="tag">Equity</span></td>
+                    <td class="r mono">200</td>
+                    <td class="r mono">₹1,380</td>
+                    <td class="r mono">₹1,448</td>
+                    <td class="r mono">₹2,76,000</td>
+                    <td class="r mono up">₹2,89,600</td>
+                    <td class="r mono up">+₹13,600 <span style="font-size:9px">(+4.9%)</span></td>
+                    <td class="r mono up">8.2%</td>
+                  </tr>
+                  <tr>
+                    <td><div style="font-size:12px;font-weight:500">HDFC Flexi Cap</div><div style="font-size:9px;color:var(--text3)">Mutual Fund · Regular Growth</div></td>
+                    <td><span class="tag">MF</span></td>
+                    <td class="r mono">4,820u</td>
+                    <td class="r mono">₹124.5</td>
+                    <td class="r mono">₹148.2</td>
+                    <td class="r mono">₹6,00,090</td>
+                    <td class="r mono up">₹7,14,324</td>
+                    <td class="r mono up">+₹1,14,234 <span style="font-size:9px">(+19%)</span></td>
+                    <td class="r mono up">17.8%</td>
+                  </tr>
+                  <tr>
+                    <td><div style="font-size:12px;font-weight:500">Nifty 50 ETF</div><div style="font-size:9px;color:var(--text3)">NIFTYBEES · ETF</div></td>
+                    <td><span class="tag">ETF</span></td>
+                    <td class="r mono">800</td>
+                    <td class="r mono">₹204</td>
+                    <td class="r mono">₹224</td>
+                    <td class="r mono">₹1,63,200</td>
+                    <td class="r mono up">₹1,79,200</td>
+                    <td class="r mono up">+₹16,000 <span style="font-size:9px">(+9.8%)</span></td>
+                    <td class="r mono up">14.2%</td>
+                  </tr>
+                  <tr>
+                    <td><div style="font-size:12px;font-weight:500">Sovereign Gold Bond</div><div style="font-size:9px;color:var(--text3)">SGB 2022-23 · Bond</div></td>
+                    <td><span class="tag">Bond</span></td>
+                    <td class="r mono">10g</td>
+                    <td class="r mono">₹5,611</td>
+                    <td class="r mono">₹7,245</td>
+                    <td class="r mono">₹56,110</td>
+                    <td class="r mono up">₹72,450</td>
+                    <td class="r mono up">+₹16,340 <span style="font-size:9px">(+29.1%)</span></td>
+                    <td class="r mono up">24.6%</td>
+                  </tr>
+                  <tr>
+                    <td><div style="font-size:12px;font-weight:500">HDFC Bank</div><div style="font-size:9px;color:var(--text3)">HDFCBANK · Equity</div></td>
+                    <td><span class="tag">Equity</span></td>
+                    <td class="r mono">100</td>
+                    <td class="r mono">₹1,540</td>
+                    <td class="r mono">₹1,621</td>
+                    <td class="r mono">₹1,54,000</td>
+                    <td class="r mono up">₹1,62,100</td>
+                    <td class="r mono up">+₹8,100 <span style="font-size:9px">(+5.3%)</span></td>
+                    <td class="r mono up">9.4%</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <!-- Performance area chart -->
+              <div class="section-hd" style="margin-top:1px">Portfolio Value Over Time</div>
+              <div style="padding:10px 12px;">
+                <svg width="100%" height="100" viewBox="0 0 700 100">
+                  <polyline points="0,85 58,80 116,78 174,70 232,74 290,65 348,62 406,55 464,52 522,44 580,40 638,36 700,28"
+                    fill="none" stroke="var(--green)" stroke-width="1.5"/>
+                  <polyline points="0,90 58,88 116,86 174,82 232,84 290,80 348,78 406,74 464,72 522,68 580,66 638,64 700,60"
+                    fill="none" stroke="var(--blue)" stroke-width="1.5" stroke-dasharray="4 2"/>
+                  <polygon points="0,85 58,80 116,78 174,70 232,74 290,65 348,62 406,55 464,52 522,44 580,40 638,36 700,28 700,98 0,98"
+                    fill="url(#pf-grad)" opacity="0.25"/>
+                  <polygon points="0,90 58,88 116,86 174,82 232,84 290,80 348,78 406,74 464,72 522,68 580,66 638,64 700,60 700,98 0,98"
+                    fill="url(#pf-grad2)" opacity="0.12"/>
+                  <text x="4" y="10" font-size="8" fill="var(--green)">── Current Value</text>
+                  <text x="120" y="10" font-size="8" fill="var(--blue)">─ ─ Invested Value</text>
+                  <defs>
+                    <linearGradient id="pf-grad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--green)"/><stop offset="100%" stop-color="transparent"/></linearGradient>
+                    <linearGradient id="pf-grad2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--blue)"/><stop offset="100%" stop-color="transparent"/></linearGradient>
+                  </defs>
+                </svg>
+              </div>
+            </div>
+
+            <!-- Right composition -->
+            <div class="cell" style="padding:0;border-left:1px solid var(--border);">
+              <div class="section-hd">Composition</div>
+              <div style="padding:12px;">
+                <div style="font-size:9px;color:var(--text3);font-family:var(--font-cond);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">By Type</div>
+                <svg width="140" height="140" viewBox="0 0 140 140" style="display:block;margin:0 auto 10px;">
+                  <circle cx="70" cy="70" r="50" fill="none" stroke="var(--border)" stroke-width="22"/>
+                  <circle cx="70" cy="70" r="50" fill="none" stroke="var(--purple)" stroke-width="22" stroke-dasharray="157 157" stroke-dashoffset="0" transform="rotate(-90 70 70)"/>
+                  <circle cx="70" cy="70" r="50" fill="none" stroke="var(--accent)" stroke-width="22" stroke-dasharray="110 204" stroke-dashoffset="-157" transform="rotate(-90 70 70)"/>
+                  <circle cx="70" cy="70" r="50" fill="none" stroke="var(--blue)" stroke-width="22" stroke-dasharray="57 257" stroke-dashoffset="-267" transform="rotate(-90 70 70)"/>
+                  <circle cx="70" cy="70" r="50" fill="none" stroke="var(--green)" stroke-width="22" stroke-dasharray="33 281" transform="rotate(70 70 70)"/>
+                  <text x="70" y="68" text-anchor="middle" font-size="14" fill="var(--text)" font-family="IBM Plex Mono">50%</text>
+                  <text x="70" y="80" text-anchor="middle" font-size="7" fill="var(--text3)" font-family="IBM Plex Sans Condensed" letter-spacing="1">EQUITY</text>
+                </svg>
+                <div style="display:flex;flex-direction:column;gap:5px;font-size:10px;">
+                  <div style="display:flex;justify-content:space-between;"><span style="color:var(--purple)">● MF</span><span style="font-family:var(--font-mono)">36% · ₹7.1L</span></div>
+                  <div style="display:flex;justify-content:space-between;"><span style="color:var(--accent)">● Bond/Gold</span><span style="font-family:var(--font-mono)">28% · ₹5.5L</span></div>
+                  <div style="display:flex;justify-content:space-between;"><span style="color:var(--blue)">● ETF</span><span style="font-family:var(--font-mono)">14% · ₹1.8L</span></div>
+                  <div style="display:flex;justify-content:space-between;"><span style="color:var(--green)">● Cash</span><span style="font-family:var(--font-mono)">8% · ₹1.6L</span></div>
+                </div>
+
+                <div style="border-top:1px solid var(--border);margin-top:12px;padding-top:10px;">
+                  <div style="font-size:9px;color:var(--text3);font-family:var(--font-cond);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">By Sector</div>
+                  <div style="display:flex;flex-direction:column;gap:4px;font-size:10px;">
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--text2)">Technology</span><span style="font-family:var(--font-mono)">28%</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--text2)">Finance</span><span style="font-family:var(--font-mono)">24%</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--text2)">Energy</span><span style="font-family:var(--font-mono)">18%</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--text2)">Other</span><span style="font-family:var(--font-mono)">30%</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="screen-divider"></div>
+
+      <!-- ═══════════════════════════════════════
+           SCREEN 6: GOALS
+      ════════════════════════════════════════════ -->
+      <div class="screen-wrap" id="screen-goals">
+        <div class="screen-label">Screen 6 — Savings Goals <span class="badge">DESKTOP · 800px</span></div>
+        <div class="content" style="height:calc(100vh - 180px);overflow-y:auto;">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 14px;background:var(--bg2);border-bottom:1px solid var(--border);">
+            <div style="display:flex;gap:8px;">
+              <span class="tab active" style="border-bottom:2px solid var(--accent);color:var(--accent)">Active (3)</span>
+              <span class="tab">Completed (2)</span>
+            </div>
+            <button class="btn btn-primary">+ New Goal</button>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);padding:0;">
+            <!-- Goal card 1 -->
+            <div style="background:var(--bg2);padding:14px 16px;border-bottom:1px solid var(--border);">
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;">
+                <div>
+                  <div style="font-family:var(--font-cond);font-size:14px;font-weight:600;color:var(--text)">🆘 Emergency Fund</div>
+                  <div style="font-size:10px;color:var(--text3);font-family:var(--font-mono);margin-top:1px">Source: HDFC Savings</div>
+                </div>
+                <span style="background:rgba(0,200,150,.15);color:var(--green);font-family:var(--font-mono);font-size:9px;padding:2px 6px;">ON TRACK</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                <div>
+                  <div style="font-family:var(--font-mono);font-size:20px;color:var(--accent)">₹2,40,000</div>
+                  <div style="font-size:9px;color:var(--text3)">BLOCKED</div>
+                </div>
+                <div style="text-align:right">
+                  <div style="font-family:var(--font-mono);font-size:20px;color:var(--text2)">₹3,00,000</div>
+                  <div style="font-size:9px;color:var(--text3)">TARGET</div>
+                </div>
+              </div>
+              <div class="pbar-wrap" style="height:6px;margin-bottom:8px;"><div class="pbar amber" style="width:80%;height:6px;"></div></div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:9px;font-family:var(--font-mono);">
+                <div><div style="color:var(--text3)">REMAINING</div><div style="color:var(--text);margin-top:1px">₹60,000</div></div>
+                <div><div style="color:var(--text3)">TARGET DATE</div><div style="color:var(--text);margin-top:1px">Dec 2026</div></div>
+                <div><div style="color:var(--text3)">PROJ. DATE</div><div style="color:var(--green);margin-top:1px">Oct 2026</div></div>
+              </div>
+              <div style="margin-top:10px;display:flex;gap:6px;">
+                <button class="btn btn-primary" style="font-size:10px">Block Funds</button>
+                <button class="btn btn-ghost" style="font-size:10px">History</button>
+              </div>
+            </div>
+
+            <!-- Goal card 2 -->
+            <div style="background:var(--bg2);padding:14px 16px;border-bottom:1px solid var(--border);">
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;">
+                <div>
+                  <div style="font-family:var(--font-cond);font-size:14px;font-weight:600;color:var(--text)">✈ Goa Trip</div>
+                  <div style="font-size:10px;color:var(--text3);font-family:var(--font-mono);margin-top:1px">Source: SBI Current</div>
+                </div>
+                <span style="background:rgba(240,165,0,.15);color:var(--accent);font-family:var(--font-mono);font-size:9px;padding:2px 6px;">SLIGHTLY BEHIND</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                <div>
+                  <div style="font-family:var(--font-mono);font-size:20px;color:var(--accent)">₹18,000</div>
+                  <div style="font-size:9px;color:var(--text3)">BLOCKED</div>
+                </div>
+                <div style="text-align:right">
+                  <div style="font-family:var(--font-mono);font-size:20px;color:var(--text2)">₹50,000</div>
+                  <div style="font-size:9px;color:var(--text3)">TARGET</div>
+                </div>
+              </div>
+              <div class="pbar-wrap" style="height:6px;margin-bottom:8px;"><div class="pbar amber" style="width:36%;height:6px;"></div></div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:9px;font-family:var(--font-mono);">
+                <div><div style="color:var(--text3)">REMAINING</div><div style="color:var(--text);margin-top:1px">₹32,000</div></div>
+                <div><div style="color:var(--text3)">TARGET DATE</div><div style="color:var(--text);margin-top:1px">Jun 2026</div></div>
+                <div><div style="color:var(--text3)">NEED/MO</div><div style="color:var(--red);margin-top:1px">₹16,000</div></div>
+              </div>
+              <div style="margin-top:10px;display:flex;gap:6px;">
+                <button class="btn btn-primary" style="font-size:10px">Block Funds</button>
+                <button class="btn btn-ghost" style="font-size:10px">History</button>
+              </div>
+            </div>
+
+            <!-- Goal card 3 -->
+            <div style="background:var(--bg2);padding:14px 16px;">
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;">
+                <div>
+                  <div style="font-family:var(--font-cond);font-size:14px;font-weight:600;color:var(--text)">💻 New Laptop</div>
+                  <div style="font-size:10px;color:var(--text3);font-family:var(--font-mono);margin-top:1px">Source: HDFC Savings</div>
+                </div>
+                <span style="background:rgba(0,200,150,.15);color:var(--green);font-family:var(--font-mono);font-size:9px;padding:2px 6px;">ON TRACK</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                <div>
+                  <div style="font-family:var(--font-mono);font-size:20px;color:var(--accent)">₹70,000</div>
+                  <div style="font-size:9px;color:var(--text3)">BLOCKED</div>
+                </div>
+                <div style="text-align:right">
+                  <div style="font-family:var(--font-mono);font-size:20px;color:var(--text2)">₹90,000</div>
+                  <div style="font-size:9px;color:var(--text3)">TARGET</div>
+                </div>
+              </div>
+              <div class="pbar-wrap" style="height:6px;margin-bottom:8px;"><div class="pbar green" style="width:78%;height:6px;"></div></div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:9px;font-family:var(--font-mono);">
+                <div><div style="color:var(--text3)">REMAINING</div><div style="color:var(--text);margin-top:1px">₹20,000</div></div>
+                <div><div style="color:var(--text3)">TARGET DATE</div><div style="color:var(--text);margin-top:1px">Aug 2026</div></div>
+                <div><div style="color:var(--text3)">PROJ. DATE</div><div style="color:var(--green);margin-top:1px">Jul 2026</div></div>
+              </div>
+              <div style="margin-top:10px;display:flex;gap:6px;">
+                <button class="btn btn-primary" style="font-size:10px">Block Funds</button>
+                <button class="btn btn-ghost" style="font-size:10px">History</button>
+              </div>
+            </div>
+
+            <!-- Account available balances -->
+            <div style="background:var(--bg2);padding:14px 16px;">
+              <div class="section-hd" style="padding:0;border:none;margin-bottom:10px;">Account Available Balances</div>
+              <table>
+                <thead>
+                  <tr><th>Account</th><th class="r">Total</th><th class="r">Blocked</th><th class="r" style="color:var(--accent)">Available</th></tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style="font-size:11px">HDFC Savings</td>
+                    <td class="r mono" style="font-size:10px">₹8,42,000</td>
+                    <td class="r mono" style="font-size:10px;color:var(--accent)">₹3,10,000</td>
+                    <td class="r mono" style="font-size:10px;color:var(--green)">₹5,32,000</td>
+                  </tr>
+                  <tr>
+                    <td style="font-size:11px">SBI Current</td>
+                    <td class="r mono" style="font-size:10px">₹4,18,000</td>
+                    <td class="r mono" style="font-size:10px;color:var(--accent)">₹18,000</td>
+                    <td class="r mono" style="font-size:10px;color:var(--green)">₹4,00,000</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div style="margin-top:12px;padding:8px;background:var(--bg3);border-left:2px solid var(--accent);">
+                <div style="font-size:10px;color:var(--text2);font-family:var(--font-cond);letter-spacing:.04em;">Total blocked across all goals: <span style="font-family:var(--font-mono);color:var(--accent)">₹3,28,000</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="screen-divider"></div>
+
+      <!-- ═══════════════════════════════════════
+           SCREEN 7: ADD TRANSACTION MODAL
+      ════════════════════════════════════════════ -->
+      <div class="screen-wrap" id="screen-add-tx">
+        <div class="screen-label">Screen 7 — Add Transaction Modal <span class="badge">OVERLAY · 500px</span></div>
+        <div class="content" style="height:calc(100vh - 180px);overflow-y:auto;background:rgba(0,0,0,.6);">
+          <div class="modal-wrap">
+            <div class="modal-hd">
+              Add Transaction
+              <span style="cursor:pointer;font-size:16px;color:var(--text3)">✕</span>
+            </div>
+            <div class="type-selector">
+              <div class="type-btn active">Income</div>
+              <div class="type-btn">Expense</div>
+              <div class="type-btn">Transfer</div>
+              <div class="type-btn">Invest Buy</div>
+              <div class="type-btn">Invest Sell</div>
+              <div class="type-btn">Dividend</div>
+              <div class="type-btn">Loan Repay</div>
+              <div class="type-btn">CC Payment</div>
+            </div>
+            <div style="padding:0 12px 12px;">
+              <!-- Amount prominent display -->
+              <div style="background:var(--bg3);border:1px solid var(--border2);padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;gap:8px;">
+                <span style="font-family:var(--font-mono);font-size:28px;color:var(--text3)">₹</span>
+                <input type="number" placeholder="0" style="background:none;border:none;font-family:var(--font-mono);font-size:28px;color:var(--text);width:100%;padding:0;">
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                <div class="field">
+                  <label>Date</label>
+                  <input type="text" value="28/04/2026">
+                </div>
+                <div class="field">
+                  <label>Account</label>
+                  <select>
+                    <option>HDFC Savings</option>
+                    <option>SBI Current</option>
+                    <option>HDFC Diners CC</option>
+                  </select>
+                </div>
+                <div class="field" style="grid-column:span 2;">
+                  <label>Description</label>
+                  <input type="text" placeholder="e.g. Salary — TechCorp India">
+                </div>
+                <div class="field">
+                  <label>Category</label>
+                  <select>
+                    <option>Salary</option>
+                    <option>Freelance</option>
+                    <option>Rental</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Tags</label>
+                  <input type="text" placeholder="#salary #fy26">
+                </div>
+                <div class="field" style="grid-column:span 2;">
+                  <label>Notes (optional)</label>
+                  <input type="text" placeholder="Any additional notes…">
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">
+                <input type="checkbox" id="recur" style="accent-color:var(--accent)">
+                <label for="recur" style="display:inline;margin:0;font-size:11px;text-transform:none;letter-spacing:0;color:var(--text2)">Recurring transaction</label>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">
+                <input type="checkbox" id="split" style="accent-color:var(--accent)">
+                <label for="split" style="display:inline;margin:0;font-size:11px;text-transform:none;letter-spacing:0;color:var(--text2)">Split into multiple categories</label>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:4px;">
+                <button class="btn btn-ghost" style="flex:1">Cancel</button>
+                <button class="btn btn-primary" style="flex:2">Save Transaction</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="screen-divider"></div>
+
+      <!-- ═══════════════════════════════════════
+           SCREEN 8: MOBILE
+      ════════════════════════════════════════════ -->
+      <div class="screen-wrap" id="screen-mobile">
+        <div class="screen-label">Screen 8 — Mobile (Dashboard + Transactions) <span class="badge">MOBILE · 390px</span></div>
+        <div class="content" style="height:calc(100vh - 180px);overflow-y:auto;padding:0;background:var(--bg3);">
+          <div style="display:flex;gap:12px;padding:16px;flex-wrap:wrap;">
+
+            <!-- Mobile Dashboard -->
+            <div class="mobile-frame" style="width:358px;">
+              <div class="mobile-topbar">
+                <div>
+                  <div style="font-family:var(--font-mono);font-size:9px;color:var(--text3)">ARTHA · Apr 2026</div>
+                  <div style="font-family:var(--font-cond);font-size:13px;font-weight:600;color:var(--text)">Good evening, Rahul</div>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;">
+                  <span style="font-size:16px;cursor:pointer">👁</span>
+                  <div class="user-avatar">RS</div>
+                </div>
+              </div>
+              <div class="mobile-content">
+                <!-- Hero net worth -->
+                <div style="padding:16px 14px 10px;background:var(--bg2);border-bottom:1px solid var(--border);">
+                  <div style="font-size:9px;font-family:var(--font-mono);color:var(--text3);letter-spacing:.08em;text-transform:uppercase;">Net Worth</div>
+                  <div style="font-family:var(--font-mono);font-size:32px;color:var(--text);margin:3px 0 2px;letter-spacing:-1px">₹47,83,291</div>
+                  <div style="font-size:11px;font-family:var(--font-mono);color:var(--green)">▲ ₹1,24,500 +2.67% this month</div>
+                  <svg width="100%" height="32" viewBox="0 0 330 32" style="margin-top:8px;">
+                    <polyline points="0,26 27,22 55,24 82,18 110,20 137,13 165,14 192,9 220,11 247,7 275,5 302,4 330,2"
+                      fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+                    <polygon points="0,26 27,22 55,24 82,18 110,20 137,13 165,14 192,9 220,11 247,7 275,5 302,4 330,2 330,32 0,32"
+                      fill="url(#mob-gold)" opacity="0.2"/>
+                    <defs><linearGradient id="mob-gold" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--accent)"/><stop offset="100%" stop-color="transparent"/></linearGradient></defs>
+                  </svg>
+                </div>
+
+                <!-- 2x2 metric grid -->
+                <div class="mob-metric-row">
+                  <div class="mob-metric">
+                    <div style="font-size:8px;font-family:var(--font-mono);color:var(--text3);text-transform:uppercase">Income</div>
+                    <div style="font-family:var(--font-mono);font-size:16px;color:var(--green);margin-top:2px">₹1,25,000</div>
+                  </div>
+                  <div class="mob-metric">
+                    <div style="font-size:8px;font-family:var(--font-mono);color:var(--text3);text-transform:uppercase">Expenses</div>
+                    <div style="font-family:var(--font-mono);font-size:16px;color:var(--red);margin-top:2px">₹68,420</div>
+                  </div>
+                  <div class="mob-metric">
+                    <div style="font-size:8px;font-family:var(--font-mono);color:var(--text3);text-transform:uppercase">Assets</div>
+                    <div style="font-family:var(--font-mono);font-size:16px;color:var(--text);margin-top:2px">₹52.1L</div>
+                  </div>
+                  <div class="mob-metric">
+                    <div style="font-size:8px;font-family:var(--font-mono);color:var(--text3);text-transform:uppercase">Liabilities</div>
+                    <div style="font-family:var(--font-mono);font-size:16px;color:var(--red);margin-top:2px">₹4.3L</div>
+                  </div>
+                </div>
+
+                <!-- Budget strip -->
+                <div class="mob-card">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                    <span style="font-family:var(--font-cond);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text2)">April Budget</span>
+                    <span style="font-family:var(--font-mono);font-size:10px;color:var(--accent)">80.5% used</span>
+                  </div>
+                  <div class="pbar-wrap" style="height:5px;"><div class="pbar amber" style="width:80%;height:5px;"></div></div>
+                  <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:10px;margin-top:4px;">
+                    <span style="color:var(--text2)">₹68,420 of ₹85,000</span>
+                    <span style="color:var(--green)">₹16,580 left</span>
+                  </div>
+                  <div style="display:flex;gap:4px;margin-top:8px;flex-wrap:wrap;">
+                    <span style="font-size:9px;padding:2px 5px;background:rgba(240,64,96,.15);color:var(--red);">🚗 Transport ⚠</span>
+                    <span style="font-size:9px;padding:2px 5px;background:rgba(240,165,0,.1);color:var(--accent);">🍽 Dining !</span>
+                    <span style="font-size:9px;padding:2px 5px;background:rgba(0,200,150,.1);color:var(--green);">🛒 Grocery ✓</span>
+                  </div>
+                </div>
+
+                <!-- Recent transactions mobile -->
+                <div style="border-top:1px solid var(--border);">
+                  <div style="padding:8px 12px 4px;display:flex;justify-content:space-between;align-items:center;">
+                    <span style="font-family:var(--font-cond);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text2)">Recent</span>
+                    <span style="font-family:var(--font-mono);font-size:10px;color:var(--accent)">See all</span>
+                  </div>
+                  <div class="mob-tx-item">
+                    <div class="mob-tx-icon" style="background:rgba(0,200,150,.12);">💼</div>
+                    <div style="flex:1;">
+                      <div style="font-size:12px;color:var(--text)">Salary Credit</div>
+                      <div style="font-size:9px;color:var(--text3)">HDFC Savings · 28 Apr</div>
+                    </div>
+                    <span style="font-family:var(--font-mono);font-size:12px;color:var(--green)">+₹1,25,000</span>
+                  </div>
+                  <div class="mob-tx-item">
+                    <div class="mob-tx-icon" style="background:rgba(240,64,96,.1);">🛒</div>
+                    <div style="flex:1;">
+                      <div style="font-size:12px;color:var(--text)">BigBasket</div>
+                      <div style="font-size:9px;color:var(--text3)">Groceries · 28 Apr</div>
+                    </div>
+                    <span style="font-family:var(--font-mono);font-size:12px;color:var(--red)">−₹2,840</span>
+                  </div>
+                  <div class="mob-tx-item">
+                    <div class="mob-tx-icon" style="background:rgba(144,96,240,.12);">📈</div>
+                    <div style="flex:1;">
+                      <div style="font-size:12px;color:var(--text)">SIP — HDFC MF</div>
+                      <div style="font-size:9px;color:var(--text3)">Investment · 24 Apr</div>
+                    </div>
+                    <span style="font-family:var(--font-mono);font-size:12px;color:var(--purple)">−₹10,000</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Mobile bottom nav -->
+              <div style="position:relative;">
+                <div class="mob-fab">+</div>
+                <div class="mobile-bottom-nav">
+                  <div class="mob-nav-item active"><span class="mob-nav-icon">⊞</span>Home</div>
+                  <div class="mob-nav-item"><span class="mob-nav-icon">≡</span>Txns</div>
+                  <div class="mob-nav-item"><span class="mob-nav-icon" style="font-size:22px">+</span></div>
+                  <div class="mob-nav-item"><span class="mob-nav-icon">△</span>Invest</div>
+                  <div class="mob-nav-item"><span class="mob-nav-icon">◑</span>More</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Mobile Transaction View -->
+            <div class="mobile-frame" style="width:358px;">
+              <div class="mobile-topbar">
+                <div style="font-family:var(--font-cond);font-size:14px;font-weight:600;color:var(--text)">← Transactions</div>
+                <div style="display:flex;gap:8px;">
+                  <span style="font-size:16px;cursor:pointer;color:var(--text3)">⌕</span>
+                  <span style="font-size:16px;cursor:pointer;color:var(--text3)">⏸</span>
+                </div>
+              </div>
+              <div class="mobile-content">
+                <!-- Summary strip -->
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--border);border-bottom:1px solid var(--border);">
+                  <div style="background:var(--bg3);padding:8px 10px;">
+                    <div style="font-size:8px;font-family:var(--font-mono);color:var(--text3)">INCOME</div>
+                    <div style="font-family:var(--font-mono);font-size:13px;color:var(--green);margin-top:1px">+₹1.25L</div>
+                  </div>
+                  <div style="background:var(--bg3);padding:8px 10px;">
+                    <div style="font-size:8px;font-family:var(--font-mono);color:var(--text3)">SPEND</div>
+                    <div style="font-family:var(--font-mono);font-size:13px;color:var(--red);margin-top:1px">−₹68.4K</div>
+                  </div>
+                  <div style="background:var(--bg3);padding:8px 10px;">
+                    <div style="font-size:8px;font-family:var(--font-mono);color:var(--text3)">NET</div>
+                    <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-top:1px">+₹56.6K</div>
+                  </div>
+                </div>
+
+                <!-- Date group -->
+                <div style="padding:6px 12px;background:var(--bg3);border-bottom:1px solid var(--border);">
+                  <span style="font-family:var(--font-mono);font-size:9px;color:var(--text3)">TODAY · 28 APR 2026</span>
+                </div>
+                <div class="mob-tx-item">
+                  <div class="mob-tx-icon" style="background:rgba(0,200,150,.12);">💼</div>
+                  <div style="flex:1;"><div style="font-size:12px">Salary Credit</div><div style="font-size:9px;color:var(--text3)">HDFC Savings · Salary</div></div>
+                  <span style="font-family:var(--font-mono);font-size:12px;color:var(--green)">+₹1,25,000</span>
+                </div>
+                <div class="mob-tx-item">
+                  <div class="mob-tx-icon" style="background:rgba(240,64,96,.1);">🛒</div>
+                  <div style="flex:1;"><div style="font-size:12px">BigBasket</div><div style="font-size:9px;color:var(--text3)">HDFC CC · Groceries</div></div>
+                  <span style="font-family:var(--font-mono);font-size:12px;color:var(--red)">−₹2,840</span>
+                </div>
+
+                <div style="padding:6px 12px;background:var(--bg3);border-bottom:1px solid var(--border);border-top:1px solid var(--border);">
+                  <span style="font-family:var(--font-mono);font-size:9px;color:var(--text3)">27 APR 2026</span>
+                </div>
+                <div class="mob-tx-item">
+                  <div class="mob-tx-icon" style="background:rgba(240,64,96,.1);">🍽</div>
+                  <div style="flex:1;"><div style="font-size:12px">Zomato</div><div style="font-size:9px;color:var(--text3)">HDFC CC · Dining Out</div></div>
+                  <span style="font-family:var(--font-mono);font-size:12px;color:var(--red)">−₹680</span>
+                </div>
+                <div class="mob-tx-item">
+                  <div class="mob-tx-icon" style="background:rgba(240,64,96,.1);">🎬</div>
+                  <div style="flex:1;"><div style="font-size:12px">Netflix</div><div style="font-size:9px;color:var(--text3)">SBI · Subscriptions</div></div>
+                  <span style="font-family:var(--font-mono);font-size:12px;color:var(--red)">−₹649</span>
+                </div>
+
+                <div style="padding:6px 12px;background:var(--bg3);border-bottom:1px solid var(--border);border-top:1px solid var(--border);">
+                  <span style="font-family:var(--font-mono);font-size:9px;color:var(--text3)">24 APR 2026</span>
+                </div>
+                <div class="mob-tx-item">
+                  <div class="mob-tx-icon" style="background:rgba(144,96,240,.12);">📈</div>
+                  <div style="flex:1;"><div style="font-size:12px">SIP — HDFC MF</div><div style="font-size:9px;color:var(--purple)">Investment Buy</div></div>
+                  <span style="font-family:var(--font-mono);font-size:12px;color:var(--purple)">−₹10,000</span>
+                </div>
+                <div class="mob-tx-item">
+                  <div class="mob-tx-icon" style="background:rgba(58,127,255,.12);">↕</div>
+                  <div style="flex:1;"><div style="font-size:12px">HDFC CC Payment</div><div style="font-size:9px;color:var(--blue)">Transfer</div></div>
+                  <span style="font-family:var(--font-mono);font-size:12px;color:var(--blue)">₹25,000</span>
+                </div>
+              </div>
+              <div style="position:relative;">
+                <div class="mob-fab">+</div>
+                <div class="mobile-bottom-nav">
+                  <div class="mob-nav-item"><span class="mob-nav-icon">⊞</span>Home</div>
+                  <div class="mob-nav-item active"><span class="mob-nav-icon">≡</span>Txns</div>
+                  <div class="mob-nav-item"><span class="mob-nav-icon" style="font-size:22px">+</span></div>
+                  <div class="mob-nav-item"><span class="mob-nav-icon">△</span>Invest</div>
+                  <div class="mob-nav-item"><span class="mob-nav-icon">◑</span>More</div>
+                </div>
+              </div>
+            </div>
+
+          </div><!-- end mobile frames row -->
+        </div>
+      </div>
+
+
+      <!-- ═══════════════════════════════════════
+           SCREEN 9: CASH FLOW SANKEY
+      ════════════════════════════════════════════ -->
+      <div class="screen-divider"></div>
+      <div class="screen-wrap" id="screen-cashflow" style="width:1060px;">
+        <div class="screen-label">
+          Screen 9 — Cash Flow · Sankey Diagram
+          <span class="badge">DESKTOP · REPORTS</span>
+        </div>
+        <div class="content" style="height:calc(100vh - 180px);overflow-y:auto;">
+
+          <!-- Controls bar -->
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--bg2);border-bottom:1px solid var(--border);flex-wrap:wrap;">
+            <span style="font-family:var(--font-cond);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text2)">Period:</span>
+            <div style="display:flex;gap:1px;">
+              <button class="btn btn-ghost" style="font-size:10px;padding:3px 8px;">This Month</button>
+              <button class="btn btn-primary" style="font-size:10px;padding:3px 8px;">Last 3M</button>
+              <button class="btn btn-ghost" style="font-size:10px;padding:3px 8px;">This Year</button>
+              <button class="btn btn-ghost" style="font-size:10px;padding:3px 8px;">Custom ▾</button>
+            </div>
+            <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+              <span style="font-family:var(--font-mono);font-size:10px;color:var(--text3)">Jan – Mar 2026</span>
+              <button class="btn btn-ghost" style="font-size:10px;padding:3px 8px;">⬇ Export PDF</button>
+            </div>
+          </div>
+
+          <!-- Summary strip -->
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--border);border-bottom:1px solid var(--border);">
+            <div style="background:var(--bg3);padding:8px 14px;">
+              <div class="metric-label">Total Income</div>
+              <div style="font-family:var(--font-mono);font-size:17px;color:var(--green);margin-top:2px">₹3,75,000</div>
+              <div style="font-size:9px;color:var(--text3);font-family:var(--font-mono)">3 months</div>
+            </div>
+            <div style="background:var(--bg3);padding:8px 14px;">
+              <div class="metric-label">Total Expenses</div>
+              <div style="font-family:var(--font-mono);font-size:17px;color:var(--red);margin-top:2px">₹1,84,600</div>
+              <div style="font-size:9px;color:var(--text3);font-family:var(--font-mono)">49.2% of income</div>
+            </div>
+            <div style="background:var(--bg3);padding:8px 14px;">
+              <div class="metric-label">Investments</div>
+              <div style="font-family:var(--font-mono);font-size:17px;color:var(--purple);margin-top:2px">₹90,000</div>
+              <div style="font-size:9px;color:var(--text3);font-family:var(--font-mono)">24% of income</div>
+            </div>
+            <div style="background:var(--bg3);padding:8px 14px;">
+              <div class="metric-label">Loan Repayments</div>
+              <div style="font-family:var(--font-mono);font-size:17px;color:var(--blue);margin-top:2px">₹19,500</div>
+              <div style="font-size:9px;color:var(--text3);font-family:var(--font-mono)">5.2% of income</div>
+            </div>
+            <div style="background:var(--bg3);padding:8px 14px;">
+              <div class="metric-label">Net Saved (Cash)</div>
+              <div style="font-family:var(--font-mono);font-size:17px;color:var(--accent);margin-top:2px">₹80,900</div>
+              <div style="font-size:9px;color:var(--green);font-family:var(--font-mono)">Savings rate 21.6%</div>
+            </div>
+          </div>
+
+          <!-- Main layout: Sankey + legend + right panel -->
+          <div style="display:grid;grid-template-columns:1fr 220px;gap:1px;background:var(--border);">
+
+            <!-- Sankey canvas -->
+            <div style="background:var(--bg2);padding:20px 16px 12px;">
+              <div style="font-family:var(--font-cond);font-size:9px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--text3);margin-bottom:14px;">
+                MONEY FLOW — JAN TO MAR 2026
+              </div>
+              <svg id="sankey-svg" width="100%" height="480" viewBox="0 0 800 480" style="display:block;overflow:visible;">
+                <defs>
+                  <!-- Gradients for flows -->
+                  <linearGradient id="flow-sal-groc" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#00c896" stop-opacity="0.6"/><stop offset="100%" stop-color="#f04060" stop-opacity="0.4"/></linearGradient>
+                  <linearGradient id="flow-sal-dine" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#00c896" stop-opacity="0.6"/><stop offset="100%" stop-color="#f04060" stop-opacity="0.4"/></linearGradient>
+                  <linearGradient id="flow-sal-trans" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#00c896" stop-opacity="0.6"/><stop offset="100%" stop-color="#f04060" stop-opacity="0.4"/></linearGradient>
+                  <linearGradient id="flow-sal-util" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#00c896" stop-opacity="0.6"/><stop offset="100%" stop-color="#f04060" stop-opacity="0.4"/></linearGradient>
+                  <linearGradient id="flow-sal-ent" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#00c896" stop-opacity="0.6"/><stop offset="100%" stop-color="#f04060" stop-opacity="0.4"/></linearGradient>
+                  <linearGradient id="flow-sal-subs" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#00c896" stop-opacity="0.6"/><stop offset="100%" stop-color="#f04060" stop-opacity="0.4"/></linearGradient>
+                  <linearGradient id="flow-sal-inv" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#00c896" stop-opacity="0.5"/><stop offset="100%" stop-color="#9060f0" stop-opacity="0.6"/></linearGradient>
+                  <linearGradient id="flow-sal-loan" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#00c896" stop-opacity="0.5"/><stop offset="100%" stop-color="#3a7fff" stop-opacity="0.6"/></linearGradient>
+                  <linearGradient id="flow-sal-save" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#00c896" stop-opacity="0.5"/><stop offset="100%" stop-color="#f0a500" stop-opacity="0.7"/></linearGradient>
+                  <linearGradient id="flow-free-exp" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#00c896" stop-opacity="0.5"/><stop offset="100%" stop-color="#f04060" stop-opacity="0.4"/></linearGradient>
+                  <linearGradient id="flow-free-inv" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#00c896" stop-opacity="0.5"/><stop offset="100%" stop-color="#9060f0" stop-opacity="0.5"/></linearGradient>
+                  <linearGradient id="flow-rent-exp" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#00c896" stop-opacity="0.5"/><stop offset="100%" stop-color="#f04060" stop-opacity="0.4"/></linearGradient>
+                  <linearGradient id="flow-div-inv" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#00b8d4" stop-opacity="0.5"/><stop offset="100%" stop-color="#9060f0" stop-opacity="0.5"/></linearGradient>
+                  <!-- Node fills -->
+                  <linearGradient id="node-income" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#00c896"/><stop offset="100%" stop-color="#009e78"/></linearGradient>
+                  <linearGradient id="node-expense" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#f04060"/><stop offset="100%" stop-color="#c02040"/></linearGradient>
+                  <linearGradient id="node-invest" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#9060f0"/><stop offset="100%" stop-color="#6040c0"/></linearGradient>
+                  <linearGradient id="node-loan" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#3a7fff"/><stop offset="100%" stop-color="#2060dd"/></linearGradient>
+                  <linearGradient id="node-save" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#f0a500"/><stop offset="100%" stop-color="#c07800"/></linearGradient>
+                </defs>
+
+                <!-- ─── LEFT COLUMN: Income Sources ─── -->
+                <!-- Salary node -->
+                <rect x="0" y="20" width="14" height="260" rx="2" fill="url(#node-income)"/>
+                <text x="-6" y="156" text-anchor="end" font-size="11" fill="#c8d4e8" font-family="IBM Plex Sans Condensed" font-weight="600">Salary</text>
+                <text x="-6" y="169" text-anchor="end" font-size="9" fill="#00c896" font-family="IBM Plex Mono">₹3,00,000</text>
+
+                <!-- Freelance node -->
+                <rect x="0" y="294" width="14" height="80" rx="2" fill="url(#node-income)"/>
+                <text x="-6" y="336" text-anchor="end" font-size="11" fill="#c8d4e8" font-family="IBM Plex Sans Condensed" font-weight="600">Freelance</text>
+                <text x="-6" y="349" text-anchor="end" font-size="9" fill="#00c896" font-family="IBM Plex Mono">₹48,000</text>
+
+                <!-- Rental income node -->
+                <rect x="0" y="388" width="14" height="52" rx="2" fill="url(#node-income)"/>
+                <text x="-6" y="413" text-anchor="end" font-size="11" fill="#c8d4e8" font-family="IBM Plex Sans Condensed" font-weight="600">Rental</text>
+                <text x="-6" y="426" text-anchor="end" font-size="9" fill="#00b8d4" font-family="IBM Plex Mono">₹27,000</text>
+
+                <!-- ─── MIDDLE COLUMN: Expense Categories ─── -->
+                <!-- Groceries -->
+                <rect x="393" y="10" width="14" height="68" rx="2" fill="url(#node-expense)"/>
+                <text x="415" y="40" font-size="11" fill="#c8d4e8" font-family="IBM Plex Sans Condensed" font-weight="600">Groceries</text>
+                <text x="415" y="53" font-size="9" fill="#f04060" font-family="IBM Plex Mono">₹34,200</text>
+
+                <!-- Dining Out -->
+                <rect x="393" y="88" width="14" height="54" rx="2" fill="url(#node-expense)"/>
+                <text x="415" y="116" font-size="11" fill="#c8d4e8" font-family="IBM Plex Sans Condensed" font-weight="600">Dining Out</text>
+                <text x="415" y="129" font-size="9" fill="#f04060" font-family="IBM Plex Mono">₹27,400</text>
+
+                <!-- Transport -->
+                <rect x="393" y="152" width="14" height="42" rx="2" fill="url(#node-expense)"/>
+                <text x="415" y="176" font-size="11" fill="#c8d4e8" font-family="IBM Plex Sans Condensed" font-weight="600">Transport</text>
+                <text x="415" y="189" font-size="9" fill="#f04060" font-family="IBM Plex Mono">₹21,200</text>
+
+                <!-- Utilities -->
+                <rect x="393" y="204" width="14" height="36" rx="2" fill="url(#node-expense)"/>
+                <text x="415" y="226" font-size="11" fill="#c8d4e8" font-family="IBM Plex Sans Condensed" font-weight="600">Utilities</text>
+                <text x="415" y="239" font-size="9" fill="#f04060" font-family="IBM Plex Mono">₹18,100</text>
+
+                <!-- Entertainment -->
+                <rect x="393" y="250" width="14" height="30" rx="2" fill="url(#node-expense)"/>
+                <text x="415" y="270" font-size="11" fill="#c8d4e8" font-family="IBM Plex Sans Condensed" font-weight="600">Entertainment</text>
+                <text x="415" y="283" font-size="9" fill="#f04060" font-family="IBM Plex Mono">₹15,000</text>
+
+                <!-- Subscriptions -->
+                <rect x="393" y="290" width="14" height="22" rx="2" fill="url(#node-expense)"/>
+                <text x="415" y="305" font-size="11" fill="#c8d4e8" font-family="IBM Plex Sans Condensed" font-weight="600">Subscriptions</text>
+                <text x="415" y="318" font-size="9" fill="#f04060" font-family="IBM Plex Mono">₹8,700</text>
+
+                <!-- Other Expenses -->
+                <rect x="393" y="322" width="14" height="30" rx="2" fill="url(#node-expense)" opacity="0.7"/>
+                <text x="415" y="340" font-size="11" fill="#7a8fb5" font-family="IBM Plex Sans Condensed">Medical &amp; Other</text>
+                <text x="415" y="353" font-size="9" fill="#f04060" font-family="IBM Plex Mono" opacity="0.7">₹60,000</text>
+
+                <!-- ─── RIGHT COLUMN: Destinations ─── -->
+                <!-- Investments -->
+                <rect x="786" y="20" width="14" height="200" rx="2" fill="url(#node-invest)"/>
+                <text x="808" y="115" font-size="11" fill="#c8d4e8" font-family="IBM Plex Sans Condensed" font-weight="600">Investments</text>
+                <text x="808" y="128" font-size="9" fill="#9060f0" font-family="IBM Plex Mono">₹90,000</text>
+
+                <!-- Loan Repayments -->
+                <rect x="786" y="232" width="14" height="52" rx="2" fill="url(#node-loan)"/>
+                <text x="808" y="258" font-size="11" fill="#c8d4e8" font-family="IBM Plex Sans Condensed" font-weight="600">Loan Repay</text>
+                <text x="808" y="271" font-size="9" fill="#3a7fff" font-family="IBM Plex Mono">₹19,500</text>
+
+                <!-- Net Savings -->
+                <rect x="786" y="296" width="14" height="90" rx="2" fill="url(#node-save)"/>
+                <text x="808" y="338" font-size="11" fill="#c8d4e8" font-family="IBM Plex Sans Condensed" font-weight="600">Net Savings</text>
+                <text x="808" y="351" font-size="9" fill="#f0a500" font-family="IBM Plex Mono">₹80,900</text>
+
+                <!-- ─── FLOWS: Income → Expenses (left to middle) ─── -->
+                <!-- Salary → Groceries -->
+                <path d="M14,30 C200,30 193,16 393,16 L393,72 C193,72 200,86 14,86 Z" fill="url(#flow-sal-groc)" opacity="0.75"/>
+                <!-- Salary → Dining -->
+                <path d="M14,90 C200,90 193,94 393,94 L393,136 C193,136 200,128 14,128 Z" fill="url(#flow-sal-dine)" opacity="0.75"/>
+                <!-- Salary → Transport -->
+                <path d="M14,132 C200,132 193,158 393,158 L393,188 C193,188 200,156 14,156 Z" fill="url(#flow-sal-trans)" opacity="0.7"/>
+                <!-- Salary → Utilities -->
+                <path d="M14,160 C200,160 193,208 393,208 L393,232 C193,232 200,182 14,182 Z" fill="url(#flow-sal-util)" opacity="0.65"/>
+                <!-- Salary → Entertainment -->
+                <path d="M14,185 C200,185 193,254 393,254 L393,272 C193,272 200,205 14,205 Z" fill="url(#flow-sal-ent)" opacity="0.65"/>
+                <!-- Salary → Subscriptions -->
+                <path d="M14,207 C200,207 193,294 393,294 L393,306 C193,306 200,219 14,219 Z" fill="url(#flow-sal-subs)" opacity="0.6"/>
+
+                <!-- Salary → Investments -->
+                <path d="M14,222 C400,222 400,60 786,60 L786,160 C400,160 400,260 14,260 Z" fill="url(#flow-sal-inv)" opacity="0.55"/>
+                <!-- Salary → Loan -->
+                <path d="M14,263 C400,263 400,238 786,238 L786,278 C400,278 400,283 14,283 Z" fill="url(#flow-sal-loan)" opacity="0.55"/>
+                <!-- Salary → Savings -->
+                <path d="M14,285 C400,285 400,300 786,300 L786,366 C400,366 400,279 14,279 Z" fill="url(#flow-sal-save)" opacity="0.55"/>
+
+                <!-- Freelance → Expenses (Other) -->
+                <path d="M14,298 C200,298 193,326 393,326 L393,344 C193,344 200,318 14,318 Z" fill="url(#flow-free-exp)" opacity="0.6"/>
+                <!-- Freelance → Investments -->
+                <path d="M14,322 C400,322 400,166 786,166 L786,220 C400,220 400,374 14,374 Z" fill="url(#flow-free-inv)" opacity="0.5"/>
+
+                <!-- Rental → Expenses (Other) -->
+                <path d="M14,392 C200,392 193,344 393,344 L393,352 C193,352 200,404 14,404 Z" fill="url(#flow-rent-exp)" opacity="0.5"/>
+                <!-- Dividends (shown as part of investments node going back) -->
+
+                <!-- ─── Tooltip ghost overlays for hover (invisible rects) ─── -->
+
+                <!-- ─── AXIS LABELS ─── -->
+                <text x="0" y="470" font-size="9" fill="#4a5878" font-family="IBM Plex Sans Condensed" font-weight="600" letter-spacing="1" text-transform="uppercase">INCOME SOURCES</text>
+                <text x="360" y="470" font-size="9" fill="#4a5878" font-family="IBM Plex Sans Condensed" font-weight="600" letter-spacing="1">EXPENSE CATEGORIES</text>
+                <text x="710" y="470" font-size="9" fill="#4a5878" font-family="IBM Plex Sans Condensed" font-weight="600" letter-spacing="1">DESTINATIONS</text>
+
+                <!-- ─── Column separators ─── -->
+                <line x1="200" y1="0" x2="200" y2="455" stroke="#1e2535" stroke-width="1" stroke-dasharray="3 4"/>
+                <line x1="590" y1="0" x2="590" y2="455" stroke="#1e2535" stroke-width="1" stroke-dasharray="3 4"/>
+
+              </svg>
+
+              <!-- Hover tooltip placeholder -->
+              <div id="sankey-tooltip" style="display:none;position:absolute;background:var(--bg3);border:1px solid var(--border2);padding:6px 10px;font-family:var(--font-mono);font-size:11px;color:var(--text);pointer-events:none;z-index:100;"></div>
+            </div>
+
+            <!-- Right: breakdown panel -->
+            <div style="background:var(--bg2);padding:0;border-left:1px solid var(--border);">
+              <div class="section-hd">Income Breakdown</div>
+              <div style="padding:10px 12px;display:flex;flex-direction:column;gap:5px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;">
+                  <div style="display:flex;align-items:center;gap:6px;"><div style="width:8px;height:8px;background:var(--green);"></div><span style="color:var(--text2)">Salary</span></div>
+                  <div style="text-align:right;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--text)">₹3,00,000</div><div style="font-size:9px;color:var(--text3)">80%</div></div>
+                </div>
+                <div class="pbar-wrap"><div class="pbar green" style="width:80%;"></div></div>
+                <div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;margin-top:4px;">
+                  <div style="display:flex;align-items:center;gap:6px;"><div style="width:8px;height:8px;background:var(--green);opacity:.7"></div><span style="color:var(--text2)">Freelance</span></div>
+                  <div style="text-align:right;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--text)">₹48,000</div><div style="font-size:9px;color:var(--text3)">12.8%</div></div>
+                </div>
+                <div class="pbar-wrap"><div class="pbar green" style="width:12.8%;"></div></div>
+                <div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;margin-top:4px;">
+                  <div style="display:flex;align-items:center;gap:6px;"><div style="width:8px;height:8px;background:var(--cyan);"></div><span style="color:var(--text2)">Rental</span></div>
+                  <div style="text-align:right;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--text)">₹27,000</div><div style="font-size:9px;color:var(--text3)">7.2%</div></div>
+                </div>
+                <div class="pbar-wrap"><div class="pbar" style="width:7.2%;background:var(--cyan);"></div></div>
+              </div>
+
+              <div class="section-hd" style="margin-top:4px;">Expense Breakdown</div>
+              <div style="padding:8px 12px;display:flex;flex-direction:column;gap:4px;">
+                <div style="display:flex;justify-content:space-between;font-size:10px;padding:3px 0;border-bottom:1px solid var(--border);">
+                  <span style="color:var(--text2)">Groceries</span><span style="font-family:var(--font-mono);color:var(--red)">₹34,200</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:10px;padding:3px 0;border-bottom:1px solid var(--border);">
+                  <span style="color:var(--text2)">Dining Out</span><span style="font-family:var(--font-mono);color:var(--red)">₹27,400</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:10px;padding:3px 0;border-bottom:1px solid var(--border);">
+                  <span style="color:var(--text2)">Transport</span><span style="font-family:var(--font-mono);color:var(--red)">₹21,200</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:10px;padding:3px 0;border-bottom:1px solid var(--border);">
+                  <span style="color:var(--text2)">Utilities</span><span style="font-family:var(--font-mono);color:var(--red)">₹18,100</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:10px;padding:3px 0;border-bottom:1px solid var(--border);">
+                  <span style="color:var(--text2)">Entertainment</span><span style="font-family:var(--font-mono);color:var(--red)">₹15,000</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:10px;padding:3px 0;border-bottom:1px solid var(--border);">
+                  <span style="color:var(--text2)">Subscriptions</span><span style="font-family:var(--font-mono);color:var(--red)">₹8,700</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:10px;padding:3px 0;">
+                  <span style="color:var(--text2)">Medical &amp; Other</span><span style="font-family:var(--font-mono);color:var(--red)">₹60,000</span>
+                </div>
+              </div>
+
+              <div class="section-hd" style="margin-top:4px;">Allocation Summary</div>
+              <div style="padding:10px 12px;display:flex;flex-direction:column;gap:6px;">
+                <div style="display:flex;justify-content:space-between;font-size:10px;">
+                  <span style="display:flex;align-items:center;gap:5px;"><span style="display:inline-block;width:7px;height:7px;background:var(--red);"></span><span style="color:var(--text2)">Expenses</span></span>
+                  <span style="font-family:var(--font-mono);color:var(--red)">49.2%</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:10px;">
+                  <span style="display:flex;align-items:center;gap:5px;"><span style="display:inline-block;width:7px;height:7px;background:var(--purple);"></span><span style="color:var(--text2)">Investments</span></span>
+                  <span style="font-family:var(--font-mono);color:var(--purple)">24.0%</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:10px;">
+                  <span style="display:flex;align-items:center;gap:5px;"><span style="display:inline-block;width:7px;height:7px;background:var(--accent);"></span><span style="color:var(--text2)">Net Savings</span></span>
+                  <span style="font-family:var(--font-mono);color:var(--accent)">21.6%</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:10px;">
+                  <span style="display:flex;align-items:center;gap:5px;"><span style="display:inline-block;width:7px;height:7px;background:var(--blue);"></span><span style="color:var(--text2)">Loan Repay</span></span>
+                  <span style="font-family:var(--font-mono);color:var(--blue)">5.2%</span>
+                </div>
+                <!-- stacked bar -->
+                <div style="display:flex;height:8px;margin-top:4px;gap:1px;">
+                  <div style="background:var(--red);width:49.2%;height:8px;"></div>
+                  <div style="background:var(--purple);width:24%;height:8px;"></div>
+                  <div style="background:var(--accent);width:21.6%;height:8px;"></div>
+                  <div style="background:var(--blue);width:5.2%;height:8px;"></div>
+                </div>
+              </div>
+
+              <div style="margin:12px;padding:8px;background:var(--bg3);border-left:2px solid var(--accent);">
+                <div style="font-size:9px;font-family:var(--font-cond);color:var(--text2);line-height:1.5">
+                  <span style="color:var(--accent)">▲</span> Expenses are <strong style="color:var(--text)">below</strong> the 50% threshold. Investing rate of 24% is healthy. Consider increasing to 30% for FY27 goal.
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div><!-- end screens-scroll -->
+  </div><!-- end body -->
+
+</div><!-- end shell -->
+
+<script>
+function scrollTo(id) {
+  const el = document.getElementById(id);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
+  // Update active button
+  document.querySelectorAll('.snav-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+}
+</script>
+</body>
+</html>
