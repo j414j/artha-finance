@@ -11,6 +11,7 @@ export default function Button({
   size = 'md',
   children,
   disabled,
+  style,
   ...props
 }: ButtonProps) {
   const baseStyles: React.CSSProperties = {
@@ -54,6 +55,7 @@ export default function Button({
         ...baseStyles,
         ...sizeStyles,
         ...variantStyles,
+        ...style,
       }}
       {...props}
       disabled={disabled}

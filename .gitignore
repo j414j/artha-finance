@@ -18,3 +18,5 @@ backend/.env.local
 
 # Misc
 .DS_Store
+
+graphify-out

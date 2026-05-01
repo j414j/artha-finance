@@ -1,7 +1,8 @@
 # Artha — Implementation Plan
 
 ## Decisions
-- **Multi-user**: Yes, from Phase 1. All tables have a `user_id` FK from the start.
+- **Multi-user**: Yes, from Phase 1. Users are peers with no admin/member roles. Domain data is private per user, and all domain tables have a `user_id` FK from the start.
+- **Deletion policy**: Accounts and transactions are never hard-deleted through app flows. Delete actions are soft deletes/archives scoped to the owning user.
 - **Investment prices**: Manual-only. No live price feed.
 - **Ticker bar**: Removed — serves no purpose for this use case.
 - **Sankey chart**: Interactive (Recharts or custom SVG with real data, not static).
@@ -45,6 +46,7 @@
 - `POST /api/v1/auth/logout` — clear session
 - `GET /api/v1/auth/me` — return current user from session
 - Auth middleware: extract user from session cookie, reject unauthenticated requests
+- No admin/member roles; every authenticated user can manage only their own domain data.
 
 ### Frontend
 - Login page (matches design: dark bg, monospace inputs, accent button)
@@ -73,21 +75,24 @@ Login → session persists on refresh → logout works → all sidebar nav items
 
 ### Backend
 - Migration: `accounts` table
-  - `id, user_id, name, type (enum: savings|current|credit_card|demat|mutual_fund|real_estate|loan|other), currency (ISO 4217), balance_paise i64, inr_value_paise i64, color_hex, is_active, last_updated, notes`
-- `GET /api/v1/accounts` — list all accounts for user, grouped by asset/liability
+  - `id, user_id, name, type (enum: savings|current|credit_card|demat|mutual_fund|real_estate|loan|other_asset|other_liability), currency (ISO 4217), opening_balance_paise i64, opening_date, balance_paise i64, inr_value_paise i64, color_hex, is_active, archived_at, last_updated, notes`
+- Migration: `audit_log` table for domain mutations
+  - `id, user_id, action, entity_type, entity_id, diff_json, created_at`
+- `GET /api/v1/accounts` — list active accounts for the authenticated user, grouped by asset/liability
 - `POST /api/v1/accounts` — create account
-- `PATCH /api/v1/accounts/:id` — update (including manual balance update)
-- `DELETE /api/v1/accounts/:id` — soft delete (set is_active = false)
-- `GET /api/v1/accounts/summary` — total assets, total liabilities, net worth
+- `PATCH /api/v1/accounts/:id` — update own account metadata/opening details
+- `DELETE /api/v1/accounts/:id` — archive own account (set is_active = false, archived_at = now)
+- `GET /api/v1/accounts/summary` — total assets, total liabilities, net worth for the authenticated user
+- Audit account create/update/archive actions with the acting `user_id`
 
 ### Frontend
 - Accounts screen:
   - Summary strip (total assets / liabilities / net worth)
-  - Grouped table: Assets → Cash & Bank, Investments, Real Estate, Other; Liabilities → Loans, Credit Cards
+  - Grouped table: Assets → Cash & Bank, Investments, Real Estate, Other; Liabilities → Loans, Credit Cards, Other Liabilities
   - Each row: color dot, name, currency tag, balance, INR value, last updated
   - Right sidebar: allocation donut chart (SVG), legend, loan progress bar
   - "+ Add Account" button → inline modal form
-- Edit/delete account via row action menu (⋯)
+- Edit/archive account via row action menu (⋯)
 
 ### Completion marker
 Add 3 accounts of different types → balance sheet renders correctly → net worth is sum of assets minus liabilities.
@@ -106,8 +111,8 @@ Add 3 accounts of different types → balance sheet renders correctly → net wo
 - `GET /api/v1/transactions` — cursor-paginated; filters: date_from, date_to, account_id, category_id, type, tag, search (description LIKE), amount_min, amount_max
 - `POST /api/v1/transactions` — create (with optional splits array)
 - `PATCH /api/v1/transactions/:id` — update
-- `DELETE /api/v1/transactions/:id`
-- `POST /api/v1/transactions/bulk` — bulk categorise / tag / delete
+- `DELETE /api/v1/transactions/:id` — soft delete own transaction
+- `POST /api/v1/transactions/bulk` — bulk categorise / tag / soft delete
 - `GET /api/v1/transactions/export/csv` — filtered CSV download
 - `GET /api/v1/transactions/summary` — income/expense/net for current filter
 
@@ -115,7 +120,7 @@ Add 3 accounts of different types → balance sheet renders correctly → net wo
 - Transactions screen:
   - Filter bar: search box, date chip, account/category/type/amount/tag dropdowns, CSV export, "+ Add" button
   - Summary strip (count, total income, total expenses, net)
-  - Bulk action bar (select all, bulk categorise/tag/delete)
+  - Bulk action bar (select all, bulk categorise/tag/soft delete)
   - TanStack Table with columns: checkbox, date, description, account, category, type tag, tags, amount, action menu
   - Cursor-based infinite scroll / load-more
 - Add Transaction modal:

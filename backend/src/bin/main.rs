@@ -18,8 +18,8 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite:../data/artha.db".into());
+    let database_url =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:../data/artha.db".into());
     let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into());
     let port: u16 = std::env::var("PORT")
         .unwrap_or_else(|_| "8080".into())
@@ -38,13 +38,12 @@ async fn main() {
     let app = Router::new()
         .route("/api/v1/health", get(health_check))
         .nest("/api/v1/auth", routes::auth::router())
+        .nest("/api/v1/accounts", routes::accounts::router())
         .with_state(state)
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive());
 
-    let addr: SocketAddr = format!("{host}:{port}")
-        .parse()
-        .expect("Invalid HOST:PORT");
+    let addr: SocketAddr = format!("{host}:{port}").parse().expect("Invalid HOST:PORT");
     tracing::info!("Listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
