@@ -9,6 +9,7 @@ pub struct AccountBalanceContext {
     pub currency: String,
     pub balance_paise: i64,
     pub inr_value_paise: i64,
+    pub blocked_paise: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -227,6 +228,7 @@ pub fn would_keep_balances_non_negative(
 
         account.balance_paise + balance_delta >= 0
             && account.inr_value_paise + inr_delta >= 0
+            && account.balance_paise + balance_delta >= account.blocked_paise
             && (is_liability(&account.account_type) || account.balance_paise + balance_delta >= 0)
     })
 }
@@ -242,6 +244,7 @@ mod tests {
             currency: "INR".to_string(),
             balance_paise: balance,
             inr_value_paise: balance,
+            blocked_paise: 0,
         }
     }
 
@@ -390,5 +393,20 @@ mod tests {
                 inr_value_delta_paise: 10_000,
             }]
         );
+    }
+
+    #[test]
+    fn blocked_funds_prevent_balance_from_dropping_too_low() {
+        let account = AccountBalanceContext {
+            blocked_paise: 15_000,
+            ..account("bank", "savings", 20_000)
+        };
+        let deltas = vec![AccountDelta {
+            account_id: "bank".into(),
+            balance_delta_paise: -10_000,
+            inr_value_delta_paise: -10_000,
+        }];
+
+        assert!(!would_keep_balances_non_negative(&[account], &deltas));
     }
 }

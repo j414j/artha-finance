@@ -73,7 +73,7 @@ Key decisions: multi-user from Phase 1 with per-user private data (all domain ta
 - [ ] Phase 3 — implemented; manual smoke testing pending
 - [ ] Phase 4 — implemented; frontend/backend verification pending
 - [ ] Phase 5 — not started
-- [ ] Phase 6 — not started
+- [ ] Phase 6 — implemented; frontend verification pending
 - [ ] Phase 7 — not started
 - [ ] Phase 8 — not started
 - [ ] Phase 9 — not started

@@ -4,6 +4,7 @@ pub mod balance_effect;
 pub mod budget;
 pub mod category;
 pub mod fx_rate;
+pub mod goal;
 pub mod instrument;
 pub mod transaction;
 pub mod user;

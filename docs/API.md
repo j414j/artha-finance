@@ -636,6 +636,208 @@ Return budget usage percentages and savings-rate trend for the trailing window e
 
 ---
 
+## Goals
+
+Savings goals reserve funds against a `savings` or `current` account without moving the cash out of that account. The source account balance stays unchanged, but the backend treats `balance_paise - blocked_paise` as the spendable amount.
+
+Any transaction or direct account balance edit that would reduce an account below its total active blocked amount is rejected.
+
+### Goal object
+
+```json
+{
+  "id": "uuid",
+  "name": "Emergency Fund",
+  "color_hex": "#F0A500",
+  "target_amount_paise": 30000000,
+  "source_account_id": "uuid",
+  "source_account_name": "HDFC Savings",
+  "target_date": "2026-12-31",
+  "current_blocked_paise": 24000000,
+  "completed_amount_paise": null,
+  "display_amount_paise": 24000000,
+  "remaining_paise": 6000000,
+  "progress_pct": 80.0,
+  "projected_completion_date": "2026-10-18",
+  "required_monthly_paise": 1600000,
+  "status": "active",
+  "status_label": "ON TRACK",
+  "status_tone": "green",
+  "notes": null,
+  "created_at": "2026-05-02 10:00:00",
+  "completed_at": null
+}
+```
+
+For active goals, `display_amount_paise` matches `current_blocked_paise`. For completed goals, it matches the captured completion amount.
+
+### GET /api/v1/goals
+
+Return active goals, completed goals, and source-account availability.
+
+**Response 200**
+```json
+{
+  "active_goals": [{ "...": "Goal" }],
+  "completed_goals": [{ "...": "Goal" }],
+  "account_availability": [
+    {
+      "account_id": "uuid",
+      "account_name": "HDFC Savings",
+      "total_balance_paise": 84200000,
+      "blocked_paise": 31000000,
+      "available_balance_paise": 53200000
+    }
+  ],
+  "total_blocked_paise": 32800000
+}
+```
+
+### GET /api/v1/goals/account-availability
+
+Return only the source-account availability table.
+
+**Response 200**
+```json
+{
+  "accounts": [
+    {
+      "account_id": "uuid",
+      "account_name": "HDFC Savings",
+      "total_balance_paise": 84200000,
+      "blocked_paise": 31000000,
+      "available_balance_paise": 53200000
+    }
+  ],
+  "total_blocked_paise": 32800000
+}
+```
+
+### POST /api/v1/goals
+
+Create a goal. `source_account_id` must reference an active `savings` or `current` account. Goal color is assigned automatically by the backend.
+
+**Body**
+```json
+{
+  "name": "Emergency Fund",
+  "target_amount_paise": 30000000,
+  "source_account_id": "uuid",
+  "target_date": "2026-12-31",
+  "notes": null
+}
+```
+
+**Response 200**
+```json
+{ "goal": { "...": "Goal" } }
+```
+
+### PATCH /api/v1/goals/:id
+
+Update an active goal. The source account cannot be changed while the goal still has blocked funds.
+
+**Body**
+```json
+{
+  "name": "Emergency Fund FY27",
+  "target_amount_paise": 36000000,
+  "target_date": null
+}
+```
+
+**Response 200**
+```json
+{ "goal": { "...": "Goal" } }
+```
+
+### POST /api/v1/goals/:id/block
+
+Block funds for an active goal.
+
+**Body**
+```json
+{
+  "amount_paise": 500000,
+  "date": "2026-05-02",
+  "notes": "Monthly transfer"
+}
+```
+
+The request is rejected if the source account's available balance is lower than `amount_paise`.
+
+**Response 200**
+```json
+{ "goal": { "...": "Goal" } }
+```
+
+### POST /api/v1/goals/:id/release
+
+Release part of the currently blocked amount for an active goal.
+
+**Body**
+```json
+{
+  "amount_paise": 150000,
+  "date": "2026-05-08",
+  "notes": "Needed for expense"
+}
+```
+
+The request is rejected if `amount_paise` exceeds the current blocked amount.
+
+**Response 200**
+```json
+{ "goal": { "...": "Goal" } }
+```
+
+### POST /api/v1/goals/:id/complete
+
+Manually mark an active goal complete. This does not require the target amount to be fully reached.
+
+Any still-blocked amount is released automatically, `current_blocked_paise` becomes `0`, and `completed_amount_paise` captures the progress amount at completion time.
+
+**Body**
+```json
+{
+  "date": "2026-05-10",
+  "notes": "Purchased the laptop"
+}
+```
+
+`date` is optional; when omitted, the current server date is used.
+
+**Response 200**
+```json
+{ "goal": { "...": "Goal" } }
+```
+
+### GET /api/v1/goals/:id/history
+
+Return the goal event ledger in reverse chronological order.
+
+**Response 200**
+```json
+{
+  "events": [
+    {
+      "id": "uuid",
+      "event_type": "block",
+      "amount_paise": 500000,
+      "date": "2026-05-02",
+      "notes": "Monthly transfer",
+      "created_at": "2026-05-02 10:30:00"
+    }
+  ]
+}
+```
+
+Supported event types: `block`, `release`, `complete_release`, `cancel_release`.
+
+**Errors**: `UNAUTHORIZED`, `NOT_FOUND`, `BAD_REQUEST`
+
+---
+
 ## Health
 
 ### GET /api/v1/health

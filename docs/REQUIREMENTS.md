@@ -261,6 +261,7 @@ Each savings goal has the following fields:
 |---|---|
 | Name | E.g. "Emergency Fund", "Goa Trip", "New Laptop" |
 | Target Amount | The total amount to be saved |
+| Color | Randomly assigned goal accent color |
 | Target Date | Optional deadline |
 | Source Account | The Cash account from which funds are blocked |
 | Current Blocked Amount | Running total of funds blocked towards this goal |
@@ -274,6 +275,8 @@ Each savings goal has the following fields:
 - The app always displays both the account's total balance and its available balance (unblocked).
 - The user can also **unblock** (release) funds from a goal partially or fully at any time.
 - All block/unblock actions are logged as goal transactions with a date and optional note.
+- Hitting the target amount does **not** automatically complete the goal; completion is a separate explicit user action.
+- When the user marks a goal complete, any still-blocked amount is released back into the account's available balance.
 
 ### 7.3 Goal Progress & Tracking
 

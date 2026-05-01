@@ -1180,7 +1180,8 @@ fn ensure_balances_can_apply(
         Ok(())
     } else {
         Err(AppError::BadRequest(
-            "Transaction would make an account balance negative".into(),
+            "Transaction would make an account balance invalid or consume funds blocked for goals"
+                .into(),
         ))
     }
 }
@@ -2061,11 +2062,33 @@ async fn fetch_account_context_in_tx(
     require_active: bool,
 ) -> Result<AccountBalanceContext> {
     let sql = if require_active {
-        "SELECT id, type AS account_type, currency, balance_paise, inr_value_paise
+        "SELECT id,
+                type AS account_type,
+                currency,
+                balance_paise,
+                inr_value_paise,
+                COALESCE((
+                    SELECT SUM(g.current_blocked_paise)
+                    FROM goals g
+                    WHERE g.user_id = accounts.user_id
+                      AND g.source_account_id = accounts.id
+                      AND g.status = 'active'
+                ), 0) AS blocked_paise
          FROM accounts
          WHERE id = ? AND user_id = ? AND is_active = 1"
     } else {
-        "SELECT id, type AS account_type, currency, balance_paise, inr_value_paise
+        "SELECT id,
+                type AS account_type,
+                currency,
+                balance_paise,
+                inr_value_paise,
+                COALESCE((
+                    SELECT SUM(g.current_blocked_paise)
+                    FROM goals g
+                    WHERE g.user_id = accounts.user_id
+                      AND g.source_account_id = accounts.id
+                      AND g.status = 'active'
+                ), 0) AS blocked_paise
          FROM accounts
          WHERE id = ? AND user_id = ?"
     };

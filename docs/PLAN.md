@@ -254,19 +254,24 @@ Add 4 holdings of different types → update prices → P&L computes correctly �
 **Goal**: Set savings goals tied to accounts, track progress, block funds.
 
 ### Backend
-- Migration: `goals` table (id, user_id, name, icon_emoji, target_amount_paise, source_account_id, target_date, blocked_amount_paise, status enum (active|completed|cancelled), created_at)
-- `GET /api/v1/goals` — list goals with computed: remaining, progress_pct, required_per_month, projected_date, status label
+- Migration: `goals` + `goal_events` tables for blocked snapshots, completion capture, and history
+- `GET /api/v1/goals` — list active/completed goals with computed remaining, progress_pct, required_per_month, projected_date, status label, and account availability
 - `POST /api/v1/goals` — create goal
-- `PATCH /api/v1/goals/:id` — update goal or adjust blocked amount
-- `DELETE /api/v1/goals/:id`
+- `PATCH /api/v1/goals/:id` — edit goal metadata
+- `POST /api/v1/goals/:id/block` — block funds
+- `POST /api/v1/goals/:id/release` — release funds
+- `POST /api/v1/goals/:id/complete` — mark goal complete and release blocked funds
+- `GET /api/v1/goals/:id/history` — goal event log
 - `GET /api/v1/goals/account-availability` — per-account: total balance, blocked across goals, available
+- Enforce blocked-funds floor on transactions and direct account balance edits
 
 ### Frontend
 - Goals screen:
-  - Goal cards (full-width stack): name, source account, progress bar, blocked/target amounts, remaining/target date/need-per-month grid, status badge (ON TRACK / SLIGHTLY BEHIND / AT RISK)
-  - "Block Funds" button → modal to set blocked amount (validates against account available balance)
-  - "History" button → simple contribution log
-  - Right sidebar: account available balances table (total / blocked / available), total blocked callout
+  - Two-column goal grid matching design screen 6
+  - Goal cards: name, source account, progress bar, blocked/target amounts, remaining/target date/projection grid, status badge
+  - Create/edit goal modal
+  - "Block Funds", "Release", "History", and "Mark Done" actions
+  - Account available balances card with total / blocked / available and total blocked callout
 
 ### Completion marker
 Create 3 goals → block funds → available balance in sidebar reflects deductions → on-track / behind status computes correctly.

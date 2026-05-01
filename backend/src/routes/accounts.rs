@@ -104,6 +104,19 @@ async fn update_account(
     let before = fetch_active_account(&state.db, &id, &user.id).await?;
     let input = ValidatedAccountInput::from_update(req, &before)?;
     let mut tx = state.db.begin().await?;
+    let blocked_paise = fetch_active_goal_blocked_total_in_tx(&mut tx, &user.id, &id).await?;
+    let active_goal_count = fetch_active_goal_count_in_tx(&mut tx, &user.id, &id).await?;
+
+    if input.balance_paise < blocked_paise {
+        return Err(AppError::BadRequest(
+            "Account balance cannot be set below funds blocked for goals".into(),
+        ));
+    }
+    if active_goal_count > 0 && !matches!(input.account_type.as_str(), "savings" | "current") {
+        return Err(AppError::BadRequest(
+            "Accounts funding active goals must remain savings or current accounts".into(),
+        ));
+    }
 
     sqlx::query(
         "UPDATE accounts
@@ -160,6 +173,12 @@ async fn archive_account(
 ) -> Result<StatusCode> {
     let before = fetch_active_account(&state.db, &id, &user.id).await?;
     let mut tx = state.db.begin().await?;
+    let active_goal_count = fetch_active_goal_count_in_tx(&mut tx, &user.id, &id).await?;
+    if active_goal_count > 0 {
+        return Err(AppError::BadRequest(
+            "Reassign or complete active goals before archiving this account".into(),
+        ));
+    }
 
     sqlx::query(
         "UPDATE accounts
@@ -505,4 +524,36 @@ async fn fetch_active_account_in_tx(
     .fetch_optional(&mut **tx)
     .await?
     .ok_or_else(|| AppError::NotFound("Account not found".into()))
+}
+
+async fn fetch_active_goal_blocked_total_in_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    user_id: &str,
+    account_id: &str,
+) -> Result<i64> {
+    Ok(sqlx::query_scalar::<_, i64>(
+        "SELECT COALESCE(SUM(current_blocked_paise), 0)
+         FROM goals
+         WHERE user_id = ? AND source_account_id = ? AND status = 'active'",
+    )
+    .bind(user_id)
+    .bind(account_id)
+    .fetch_one(&mut **tx)
+    .await?)
+}
+
+async fn fetch_active_goal_count_in_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    user_id: &str,
+    account_id: &str,
+) -> Result<i64> {
+    Ok(sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*)
+         FROM goals
+         WHERE user_id = ? AND source_account_id = ? AND status = 'active'",
+    )
+    .bind(user_id)
+    .bind(account_id)
+    .fetch_one(&mut **tx)
+    .await?)
 }
