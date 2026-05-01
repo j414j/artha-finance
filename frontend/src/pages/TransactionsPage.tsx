@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 import { getAccounts } from "../api/accounts";
 import { getCategories } from "../api/categories";
+import { getLatestFxRates } from "../api/fx_rates";
+import { getInstruments } from "../api/instruments";
+import type { Instrument } from "../types/instrument";
+import type { LatestFxRate } from "../types/fx_rate";
 import {
   bulkTransactions,
   createTransaction,
@@ -95,6 +99,12 @@ interface TransactionFormState {
   recurrenceFrequency: RecurrenceFrequency;
   splitMode: boolean;
   splits: SplitFormState[];
+  // investment fields (investment_buy / investment_sell / dividend)
+  instrumentId: string;
+  quantity: string;
+  pricePerUnit: string;
+  fees: string;
+  fxRate: string;
 }
 
 interface SplitFormState {
@@ -106,6 +116,8 @@ interface SplitFormState {
 export default function TransactionsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<CategoryNode[]>([]);
+  const [instruments, setInstruments] = useState<Instrument[]>([]);
+  const [latestFxRates, setLatestFxRates] = useState<LatestFxRate[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [summary, setSummary] = useState<TransactionSummary>(EMPTY_SUMMARY);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -132,9 +144,11 @@ export default function TransactionsPage() {
 
   const loadReferenceData = useCallback(async () => {
     try {
-      const [accountResponse, categoryResponse] = await Promise.all([
+      const [accountResponse, categoryResponse, instrumentResponse, fxResponse] = await Promise.all([
         getAccounts(),
         getCategories(),
+        getInstruments(),
+        getLatestFxRates(),
       ]);
       setAccounts(
         [...accountResponse.asset_groups, ...accountResponse.liability_groups]
@@ -142,6 +156,8 @@ export default function TransactionsPage() {
           .sort((a, b) => a.name.localeCompare(b.name)),
       );
       setCategories(categoryResponse.categories);
+      setInstruments(instrumentResponse.instruments);
+      setLatestFxRates(fxResponse.latest);
     } catch (err) {
       setError(
         err instanceof ApiError ? err.message : "Unable to load reference data",
@@ -225,7 +241,7 @@ export default function TransactionsPage() {
     setFormError("");
 
     try {
-      const payload = buildTransactionPayload(form);
+      const payload = buildTransactionPayload(form, accounts);
       if (editingTransaction) {
         await updateTransaction(editingTransaction.id, payload);
       } else {
@@ -437,6 +453,8 @@ export default function TransactionsPage() {
           editingTransaction={editingTransaction}
           accounts={accounts}
           categories={flatCategories}
+          instruments={instruments}
+          latestFxRates={latestFxRates}
           error={formError}
           saving={saving}
           onClose={closeModal}
@@ -1007,6 +1025,8 @@ function TransactionModal({
   editingTransaction,
   accounts,
   categories,
+  instruments,
+  latestFxRates,
   error,
   saving,
   onClose,
@@ -1017,6 +1037,8 @@ function TransactionModal({
   editingTransaction: Transaction | null;
   accounts: Account[];
   categories: FlatCategory[];
+  instruments: Instrument[];
+  latestFxRates: LatestFxRate[];
   error: string;
   saving: boolean;
   onClose: () => void;
@@ -1033,6 +1055,60 @@ function TransactionModal({
     : [];
   const canSplit = form.type === "income" || form.type === "expense";
   const needsDestination = requiresDestination(form.type);
+  const showInvestmentFields = isInvestmentType(form.type);
+  const needsInvestmentDetail = requiresInvestmentDetail(form.type);
+  const sourceAccount = accounts.find((account) => account.id === form.accountId) ?? null;
+  const destinationAccount =
+    accounts.find((account) => account.id === form.transferAccountId) ?? null;
+  const isCrossCurrencyTransfer =
+    form.type === "transfer" &&
+    sourceAccount !== null &&
+    destinationAccount !== null &&
+    sourceAccount.currency !== destinationAccount.currency;
+  const latestFxRate = useMemo(
+    () =>
+      sourceAccount && destinationAccount
+        ? findLatestFxRate(
+            latestFxRates,
+            sourceAccount.currency,
+            destinationAccount.currency,
+          )
+        : null,
+    [destinationAccount, latestFxRates, sourceAccount],
+  );
+  const computedDestinationAmount = useMemo(() => {
+    if (!isCrossCurrencyTransfer || !form.amount.trim() || !form.fxRate.trim()) {
+      return null;
+    }
+    try {
+      return Math.round(parseMoneyInput(form.amount) * parseRateInput(form.fxRate));
+    } catch {
+      return null;
+    }
+  }, [form.amount, form.fxRate, isCrossCurrencyTransfer]);
+
+  useEffect(() => {
+    if (isCrossCurrencyTransfer && !form.fxRate.trim() && latestFxRate) {
+      onChange({ ...form, fxRate: formatRateInput(latestFxRate.rate) });
+    } else if (!isCrossCurrencyTransfer && form.fxRate.trim()) {
+      onChange({ ...form, fxRate: "" });
+    }
+  }, [form, isCrossCurrencyTransfer, latestFxRate, onChange]);
+
+  // For investment_buy/sell: compute total from qty × price ± fees so user sees it
+  const computedTotal = useMemo(() => {
+    if (!needsInvestmentDetail || !form.quantity || !form.pricePerUnit) return null;
+    try {
+      const qty = parseFloat(form.quantity);
+      const price = parseMoneyInput(form.pricePerUnit);
+      const fees = form.fees.trim() ? parseMoneyInput(form.fees) : 0;
+      if (isNaN(qty) || qty <= 0 || price <= 0) return null;
+      const gross = Math.round(qty * price);
+      return form.type === "investment_buy" ? gross + fees : Math.max(0, gross - fees);
+    } catch {
+      return null;
+    }
+  }, [needsInvestmentDetail, form.type, form.quantity, form.pricePerUnit, form.fees]);
 
   const updateType = (type: TransactionType) => {
     const nextCategoryType = categoryTypeForTransaction(type);
@@ -1065,6 +1141,11 @@ function TransactionModal({
             ? [blankSplit(nextCategories[0]?.id ?? "")]
             : []
         : [],
+      instrumentId: isInvestmentType(type) ? form.instrumentId : "",
+      quantity: isInvestmentType(type) ? form.quantity : "",
+      pricePerUnit: isInvestmentType(type) ? form.pricePerUnit : "",
+      fees: isInvestmentType(type) ? form.fees : "",
+      fxRate: type === "transfer" ? form.fxRate : "",
     });
   };
 
@@ -1113,7 +1194,11 @@ function TransactionModal({
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: needsDestination ? "1fr 1fr 150px" : "1fr 150px",
+              gridTemplateColumns: needsDestination
+                ? "1fr 1fr 150px"
+                : showInvestmentFields
+                  ? "1fr"
+                  : "1fr 150px",
               gap: 10,
               marginTop: 10,
             }}
@@ -1148,14 +1233,161 @@ function TransactionModal({
                   ))}
               </Select>
             )}
-            <Input
-              label="Amount"
-              value={form.amount}
-              inputMode="decimal"
-              onChange={(event) => update("amount", event.target.value)}
-              required
-            />
+            {!showInvestmentFields && (
+              <Input
+                label="Amount"
+                value={form.amount}
+                inputMode="decimal"
+                onChange={(event) => update("amount", event.target.value)}
+                required
+              />
+            )}
           </div>
+
+          {isCrossCurrencyTransfer && sourceAccount && destinationAccount && (
+            <div
+              style={{
+                marginTop: 10,
+                padding: "10px 12px",
+                background: "var(--bg3)",
+                border: "1px solid var(--border)",
+              }}
+            >
+              <div
+                style={{
+                  fontFamily: "var(--font-cond)",
+                  fontSize: 10,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: "var(--text3)",
+                  marginBottom: 8,
+                }}
+              >
+                FX Transfer
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 10,
+                }}
+              >
+                <Input
+                  label={`Rate ${sourceAccount.currency}/${destinationAccount.currency}`}
+                  value={form.fxRate}
+                  inputMode="decimal"
+                  onChange={(event) => update("fxRate", event.target.value)}
+                  placeholder="83.450000"
+                  required
+                />
+                <div>
+                  <div style={metricLabelStyle}>Destination Credit</div>
+                  <div
+                    style={{
+                      marginTop: 5,
+                      minHeight: 28,
+                      display: "flex",
+                      alignItems: "center",
+                      background: "var(--bg2)",
+                      border: "1px solid var(--border2)",
+                      padding: "5px 8px",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 12,
+                      color:
+                        computedDestinationAmount !== null
+                          ? "var(--text)"
+                          : "var(--text3)",
+                    }}
+                  >
+                    {computedDestinationAmount !== null
+                      ? formatMoney(computedDestinationAmount, destinationAccount.currency)
+                      : "--"}
+                  </div>
+                </div>
+              </div>
+              <div
+                style={{
+                  marginTop: 8,
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 10,
+                  color: "var(--text3)",
+                }}
+              >
+                {latestFxRate
+                  ? `Latest ${latestFxRate.sourceLabel}: ${formatRateInput(latestFxRate.rate)} · ${formatDateDisplay(latestFxRate.date)}`
+                  : "No saved rate for this pair"}
+              </div>
+            </div>
+          )}
+
+          {showInvestmentFields && (
+            <div style={{ marginTop: 10, padding: "10px 12px", background: "var(--bg3)", border: "1px solid var(--border)" }}>
+              <div style={{ fontFamily: "var(--font-cond)", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text3)", marginBottom: 8 }}>
+                Investment Detail
+              </div>
+              <Select
+                label="Instrument"
+                value={form.instrumentId}
+                onChange={(event) => update("instrumentId", event.target.value)}
+                required={needsInvestmentDetail}
+              >
+                <option value="">Select instrument</option>
+                {instruments.map((inst) => (
+                  <option key={inst.id} value={inst.id}>
+                    {inst.name}{inst.ticker ? ` (${inst.ticker})` : ""}
+                  </option>
+                ))}
+              </Select>
+              {needsInvestmentDetail && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 10 }}>
+                  <Input
+                    label="Quantity"
+                    value={form.quantity}
+                    inputMode="decimal"
+                    onChange={(event) => update("quantity", event.target.value)}
+                    placeholder="e.g. 10.5"
+                    required
+                  />
+                  <Input
+                    label="Price per unit"
+                    value={form.pricePerUnit}
+                    inputMode="decimal"
+                    onChange={(event) => update("pricePerUnit", event.target.value)}
+                    placeholder="e.g. 1500.00"
+                    required
+                  />
+                  <Input
+                    label="Fees"
+                    value={form.fees}
+                    inputMode="decimal"
+                    onChange={(event) => update("fees", event.target.value)}
+                    placeholder="0.00"
+                  />
+                </div>
+              )}
+              {!needsInvestmentDetail && (
+                <div style={{ marginTop: 10 }}>
+                  <Input
+                    label="Amount"
+                    value={form.amount}
+                    inputMode="decimal"
+                    onChange={(event) => update("amount", event.target.value)}
+                    required
+                  />
+                </div>
+              )}
+              {needsInvestmentDetail && computedTotal !== null && (
+                <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontFamily: "var(--font-cond)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text3)" }}>
+                    {form.type === "investment_buy" ? "Total debit" : "Net proceeds"}
+                  </span>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--text)" }}>
+                    {paiseToInput(computedTotal)}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
 
           <div
             style={{
@@ -1364,14 +1596,68 @@ function SplitEditor({
   );
 }
 
-function buildTransactionPayload(form: TransactionFormState): TransactionPayload {
-  const amount = parseMoneyInput(form.amount);
+function buildTransactionPayload(
+  form: TransactionFormState,
+  accounts: Account[],
+): TransactionPayload {
   const description = form.description.trim();
-  if (amount <= 0) throw new Error("Amount must be positive");
   if (!description) throw new Error("Description is required");
   if (!form.accountId) throw new Error("Account is required");
   if (requiresDestination(form.type) && !form.transferAccountId) {
     throw new Error("Destination account is required");
+  }
+
+  // For investment_buy / investment_sell, derive amount from qty × price ± fees
+  const needsInvestmentDetail = requiresInvestmentDetail(form.type);
+  let amount: number;
+  let investmentFields: Partial<TransactionPayload> = {};
+  let fxFields: Partial<TransactionPayload> = {};
+
+  if (needsInvestmentDetail) {
+    if (!form.instrumentId) throw new Error("Instrument is required");
+    const qty = parseFloat(form.quantity);
+    if (!form.quantity || isNaN(qty) || qty <= 0) {
+      throw new Error("Quantity must be a positive number");
+    }
+    const pricePerUnit = parseMoneyInput(form.pricePerUnit);
+    if (pricePerUnit <= 0) throw new Error("Price per unit must be positive");
+    const fees = form.fees.trim() ? parseMoneyInput(form.fees) : 0;
+    const gross = Math.round(qty * pricePerUnit);
+    amount = form.type === "investment_buy" ? gross + fees : gross - fees;
+    if (amount <= 0) throw new Error("Net transaction amount must be positive");
+    investmentFields = {
+      instrument_id: form.instrumentId,
+      quantity: qty,
+      price_per_unit_paise: pricePerUnit,
+      fees_paise: fees,
+    };
+  } else if (isInvestmentType(form.type) && form.instrumentId) {
+    // dividend: optional instrument link
+    investmentFields = { instrument_id: form.instrumentId };
+    amount = parseMoneyInput(form.amount);
+    if (amount <= 0) throw new Error("Amount must be positive");
+  } else {
+    amount = parseMoneyInput(form.amount);
+    if (amount <= 0) throw new Error("Amount must be positive");
+  }
+
+  if (form.type === "transfer") {
+    const sourceAccount = accounts.find((account) => account.id === form.accountId);
+    const destinationAccount = accounts.find(
+      (account) => account.id === form.transferAccountId,
+    );
+    if (sourceAccount && destinationAccount && sourceAccount.currency !== destinationAccount.currency) {
+      const rate = parseRateInput(form.fxRate);
+      const toAmount = Math.round(amount * rate);
+      if (toAmount <= 0) {
+        throw new Error("Converted destination amount must be positive");
+      }
+      fxFields = {
+        fx_rate: rate,
+        fx_to_amount_paise: toAmount,
+        fx_fee_paise: 0,
+      };
+    }
   }
 
   const categoryType = categoryTypeForTransaction(form.type);
@@ -1415,6 +1701,8 @@ function buildTransactionPayload(form: TransactionFormState): TransactionPayload
     splits,
     is_recurring: form.isRecurring,
     recurrence_frequency: form.isRecurring ? form.recurrenceFrequency : null,
+    ...fxFields,
+    ...investmentFields,
   };
 }
 
@@ -1458,10 +1746,16 @@ function blankForm(
     recurrenceFrequency: "monthly",
     splitMode: false,
     splits: [],
+    instrumentId: "",
+    quantity: "",
+    pricePerUnit: "",
+    fees: "",
+    fxRate: "",
   };
 }
 
 function formFromTransaction(transaction: Transaction): TransactionFormState {
+  const detail = transaction.investment_detail;
   return {
     type: transaction.type,
     date: transaction.date,
@@ -1480,6 +1774,11 @@ function formFromTransaction(transaction: Transaction): TransactionFormState {
       amount: paiseToInput(split.amount_paise),
       notes: split.notes ?? "",
     })),
+    instrumentId: detail?.instrument_id ?? "",
+    quantity: detail ? String(detail.quantity) : "",
+    pricePerUnit: detail ? paiseToInput(detail.price_per_unit_paise) : "",
+    fees: detail ? paiseToInput(detail.fees_paise) : "",
+    fxRate: transaction.fx_rate ? formatRateInput(transaction.fx_rate) : "",
   };
 }
 
@@ -1549,6 +1848,53 @@ function parseTags(value: string): string[] {
   );
 }
 
+interface FxRateMatch {
+  rate: number;
+  date: string;
+  sourceLabel: string;
+}
+
+function findLatestFxRate(
+  rates: LatestFxRate[],
+  fromCurrency: string,
+  toCurrency: string,
+): FxRateMatch | null {
+  const from = fromCurrency.toUpperCase();
+  const to = toCurrency.toUpperCase();
+  const direct = rates.find(
+    (rate) => rate.from_currency === from && rate.to_currency === to,
+  );
+  if (direct) {
+    return {
+      rate: direct.rate,
+      date: direct.date,
+      sourceLabel: `${from}/${to}`,
+    };
+  }
+
+  const reverse = rates.find(
+    (rate) => rate.from_currency === to && rate.to_currency === from,
+  );
+  if (!reverse) return null;
+  return {
+    rate: 1 / reverse.rate,
+    date: reverse.date,
+    sourceLabel: `${to}/${from} inverted`,
+  };
+}
+
+function parseRateInput(value: string): number {
+  const rate = Number(value.trim().replace(/,/g, ""));
+  if (!Number.isFinite(rate) || rate <= 0) {
+    throw new Error("FX rate must be a positive number");
+  }
+  return rate;
+}
+
+function formatRateInput(value: number): string {
+  return value.toFixed(8).replace(/\.?0+$/, "");
+}
+
 function categoryTypeForTransaction(type: TransactionType): CategoryType | null {
   if (type === "income" || type === "dividend") return "income";
   if (type === "expense") return "expense";
@@ -1561,6 +1907,14 @@ function canSplitType(type: TransactionType) {
 
 function requiresDestination(type: TransactionType) {
   return type === "transfer" || type === "loan_repayment" || type === "credit_card_payment";
+}
+
+function isInvestmentType(type: TransactionType) {
+  return type === "investment_buy" || type === "investment_sell" || type === "dividend";
+}
+
+function requiresInvestmentDetail(type: TransactionType) {
+  return type === "investment_buy" || type === "investment_sell";
 }
 
 function typeLabel(type: TransactionType) {

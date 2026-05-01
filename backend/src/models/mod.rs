@@ -2,5 +2,7 @@ pub mod account;
 pub mod audit;
 pub mod balance_effect;
 pub mod category;
+pub mod fx_rate;
+pub mod instrument;
 pub mod transaction;
 pub mod user;

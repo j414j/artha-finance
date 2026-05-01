@@ -110,6 +110,8 @@ Liability balances are stored as positive outstanding amounts and subtracted whe
 }
 ```
 
+`inr_value_paise` is returned in base currency INR. For non-INR accounts, list and summary responses use the latest saved FX rate for `account.currency/INR` when available, falling back to the stored manual INR value when no rate exists. For `demat` and `mutual_fund` accounts, list and summary responses include brokerage cash plus current holdings value; holdings are converted to the account currency and INR when a saved FX rate is available.
+
 ### GET /api/v1/accounts
 List active accounts owned by the authenticated user, grouped for the balance sheet.
 
@@ -172,7 +174,7 @@ Create an account owned by the authenticated user.
 }
 ```
 
-On create, `balance_paise` is derived from `opening_balance_paise`; clients should not send a current/closing balance. For INR accounts, `inr_value_paise` is also derived from `opening_balance_paise`. For non-INR accounts, `inr_value_paise` is required as a manual base-currency value until FX rates are implemented.
+On create, `balance_paise` is derived from `opening_balance_paise`; clients should not send a current/closing balance. For INR accounts, `inr_value_paise` is also derived from `opening_balance_paise`. For non-INR accounts, `inr_value_paise` is required as a manual base-currency fallback for periods where no FX rate exists.
 
 **Response 201**
 ```json
@@ -325,7 +327,7 @@ Transaction types:
 ```
 
 ### GET /api/v1/transactions
-List active transactions, cursor-paginated by `date DESC, id DESC`. Defaults to the current month when no date filter is supplied.
+List active transactions, cursor-paginated by `date DESC, created_at DESC, rowid DESC`. Defaults to the current month when no date filter is supplied.
 
 **Query params**
 
@@ -335,7 +337,7 @@ List active transactions, cursor-paginated by `date DESC, id DESC`. Defaults to 
 ```json
 {
   "transactions": [],
-  "next_cursor": "2026-05-01|uuid"
+  "next_cursor": "2026-05-01|2026-05-01 10:30:00|42"
 }
 ```
 
@@ -440,3 +442,500 @@ Export up to 10,000 filtered transactions as CSV. Uses the same filters as the l
 ```json
 { "status": "ok" }
 ```
+
+---
+
+## Phase 5 — Investments & FX
+
+### FX Rates
+
+FX rate entries record the exchange rate between two currencies on a given date. The same pair can have multiple entries (one per day). All rates are stored as `f64`.
+
+#### FX Rate object
+
+```json
+{
+  "id": "uuid",
+  "from_currency": "USD",
+  "to_currency": "INR",
+  "rate": 83.45,
+  "date": "2026-05-01",
+  "notes": null,
+  "created_at": "2026-05-01 10:30:00"
+}
+```
+
+#### GET /api/v1/fx-rates
+
+List all FX rate entries for the authenticated user, ordered by `date DESC`.
+
+**Query params**: `from_currency`, `to_currency` (optional filters, case-insensitive)
+
+**Response 200**
+```json
+{ "fx_rates": [ { ...FxRate } ] }
+```
+
+---
+
+#### GET /api/v1/fx-rates/latest
+
+Return the most-recent rate for each distinct `(from_currency, to_currency)` pair. Recency is resolved by `date DESC, created_at DESC`; older rows remain in history.
+
+**Response 200**
+```json
+{
+  "latest": [
+    { "from_currency": "USD", "to_currency": "INR", "rate": 83.45, "date": "2026-05-01" }
+  ]
+}
+```
+
+---
+
+#### POST /api/v1/fx-rates
+
+Create a new FX rate entry. Recording a new row is the normal way to update a pair while preserving history.
+
+**Body**
+```json
+{
+  "from_currency": "USD",
+  "to_currency": "INR",
+  "rate": 83.45,
+  "date": "2026-05-01",
+  "notes": null
+}
+```
+
+Validation:
+- `from_currency` and `to_currency`: required, 2–10 uppercase alphanumeric chars, must differ
+- `rate`: must be > 0
+- `date`: YYYY-MM-DD
+
+**Response 201**
+```json
+{ "fx_rate": { ...FxRate } }
+```
+
+**Errors**: `UNAUTHORIZED`, `BAD_REQUEST`
+
+---
+
+#### DELETE /api/v1/fx-rates/:id
+
+Hard-delete the FX rate entry (no soft-delete for FX rates).
+
+**Response 204** (no body)
+
+**Errors**: `UNAUTHORIZED`, `NOT_FOUND`
+
+---
+
+### Instruments
+
+An instrument represents a tradable security (equity, mutual fund, ETF, bond, gold, crypto, or other).
+
+#### Instrument types
+
+`equity`, `mf`, `etf`, `bond`, `gold`, `crypto`, `other`
+
+#### Instrument object
+
+```json
+{
+  "id": "uuid",
+  "name": "Reliance Industries",
+  "ticker": "RELIANCE",
+  "type": "equity",
+  "currency": "INR",
+  "sector": "Energy",
+  "geography": "India",
+  "notes": null,
+  "is_active": true,
+  "created_at": "2026-05-01 10:30:00",
+  "updated_at": "2026-05-01 10:30:00"
+}
+```
+
+#### GET /api/v1/instruments
+
+List all active instruments for the authenticated user, ordered alphabetically by name.
+
+**Response 200**
+```json
+{ "instruments": [ { ...Instrument } ] }
+```
+
+---
+
+#### GET /api/v1/instruments/:id
+
+Get a single instrument plus its latest price snapshot.
+
+**Response 200**
+```json
+{
+  "instrument": {
+    "id": "uuid",
+    "name": "Reliance Industries",
+    "ticker": "RELIANCE",
+    "type": "equity",
+    "currency": "INR",
+    "sector": "Energy",
+    "geography": "India",
+    "notes": null,
+    "is_active": true,
+    "created_at": "...",
+    "updated_at": "...",
+    "latest_price": {
+      "id": "uuid",
+      "instrument_id": "uuid",
+      "price_paise": 290000000,
+      "date": "2026-05-01",
+      "notes": null,
+      "created_at": "..."
+    }
+  }
+}
+```
+
+`latest_price` is `null` when no price snapshots exist.
+
+**Errors**: `UNAUTHORIZED`, `NOT_FOUND`
+
+---
+
+#### POST /api/v1/instruments
+
+Create an instrument.
+
+**Body**
+```json
+{
+  "name": "Reliance Industries",
+  "type": "equity",
+  "ticker": "RELIANCE",
+  "currency": "INR",
+  "sector": "Energy",
+  "geography": "India",
+  "notes": null
+}
+```
+
+Validation:
+- `name`: required, 1–200 chars
+- `type`: must be a valid instrument type
+- `ticker`: optional, 1–20 chars, stored uppercase
+- `currency`: optional, defaults to `INR`, 2–10 alphanumeric chars
+- `sector`, `geography`: optional, 1–100 chars if provided
+- `notes`: optional, max 2000 chars
+
+**Response 201**
+```json
+{ "instrument": { ...Instrument } }
+```
+
+**Errors**: `UNAUTHORIZED`, `BAD_REQUEST`
+
+---
+
+#### PATCH /api/v1/instruments/:id
+
+Update an instrument. All fields are optional. Pass `null` to clear optional fields (ticker, sector, geography, notes).
+
+**Body**
+```json
+{ "name": "Reliance Industries Ltd", "sector": null }
+```
+
+**Response 200**
+```json
+{ "instrument": { ...Instrument } }
+```
+
+**Errors**: `UNAUTHORIZED`, `NOT_FOUND`, `BAD_REQUEST`
+
+---
+
+#### DELETE /api/v1/instruments/:id
+
+Soft-delete (archive) an instrument (`is_active = false`). Archived instruments are excluded from active lists.
+
+**Response 204** (no body)
+
+**Errors**: `UNAUTHORIZED`, `NOT_FOUND`
+
+---
+
+### Price Snapshots
+
+Manual price entries per instrument, one per date.
+
+#### Price Snapshot object
+
+```json
+{
+  "id": "uuid",
+  "instrument_id": "uuid",
+  "price_paise": 290000000,
+  "date": "2026-05-01",
+  "notes": null,
+  "created_at": "2026-05-01 10:30:00"
+}
+```
+
+#### GET /api/v1/instruments/:id/prices
+
+List all price snapshots for the instrument, ordered by `date DESC`.
+
+**Response 200**
+```json
+{ "prices": [ { ...PriceSnapshot } ] }
+```
+
+**Errors**: `UNAUTHORIZED`, `NOT_FOUND`
+
+---
+
+#### POST /api/v1/instruments/:id/prices
+
+Add a price snapshot.
+
+**Body**
+```json
+{ "price_paise": 290000000, "date": "2026-05-01", "notes": null }
+```
+
+Validation:
+- `price_paise`: >= 0
+- `date`: YYYY-MM-DD
+
+**Response 201**
+```json
+{ "price": { ...PriceSnapshot } }
+```
+
+**Errors**: `UNAUTHORIZED`, `NOT_FOUND`, `BAD_REQUEST`
+
+---
+
+#### DELETE /api/v1/instruments/:id/prices/:pid
+
+Delete a price snapshot (hard delete).
+
+**Response 204** (no body)
+
+**Errors**: `UNAUTHORIZED`, `NOT_FOUND`
+
+---
+
+### Holdings
+
+Computed view derived from `investment_buy` / `investment_sell` transactions and corporate actions. Holdings are not stored — they are always calculated on-the-fly.
+
+#### HoldingView object
+
+```json
+{
+  "instrument_id": "uuid",
+  "instrument_name": "Reliance Industries",
+  "instrument_ticker": "RELIANCE",
+  "instrument_type": "equity",
+  "instrument_currency": "INR",
+  "instrument_sector": "Energy",
+  "instrument_geography": "India",
+  "account_id": "uuid",
+  "account_name": "HDFC Demat",
+  "quantity_held": 10.0,
+  "avg_cost_per_unit_paise": 250000000,
+  "invested_value_paise": 2500000000,
+  "invested_value_inr_paise": 2500000000,
+  "latest_price_paise": 290000000,
+  "latest_price_date": "2026-05-01",
+  "current_value_paise": 2900000000,
+  "current_value_inr_paise": 2900000000,
+  "unrealised_pnl_paise": 400000000,
+  "unrealised_pnl_inr_paise": 400000000,
+  "unrealised_pnl_pct": 16.0,
+  "realised_pnl_paise": 0,
+  "realised_pnl_inr_paise": 0
+}
+```
+
+Native values are denominated in `instrument_currency`. `invested_value_inr_paise` uses the saved FX rate on or before each buy date, falling back to the latest saved FX rate if there is no historical rate. `current_value_inr_paise` uses the latest saved FX rate. If an instrument has no manual price snapshot, current value uses the latest buy price so a newly-created investment has a non-zero current value immediately.
+
+Native current-value fields are `null` only when no price snapshot or buy-price fallback is available. INR fields can also be `null` when the required FX rate is not available.
+
+#### GET /api/v1/investments/holdings
+
+List all holdings for the authenticated user.
+
+**Query params**: `account_id` (optional — filter to a single account)
+
+**Response 200**
+```json
+{ "holdings": [ { ...HoldingView } ] }
+```
+
+**Errors**: `UNAUTHORIZED`
+
+---
+
+#### GET /api/v1/investments/holdings/summary
+
+Aggregate summary across all holdings.
+
+**Query params**: `account_id` (optional)
+
+**Response 200**
+```json
+{
+  "summary": {
+    "total_invested_paise": 2500000000,
+    "total_current_value_paise": 2900000000,
+    "total_unrealised_pnl_paise": 400000000,
+    "total_unrealised_pnl_pct": 16.0,
+    "total_realised_pnl_paise": 0,
+    "holdings_count": 3
+  }
+}
+```
+
+`total_current_value_paise`, `total_unrealised_pnl_paise`, and `total_unrealised_pnl_pct` are INR values and are `null` when no holdings have a current INR valuation.
+
+**Errors**: `UNAUTHORIZED`
+
+---
+
+### Corporate Actions
+
+Corporate actions (splits, bonuses, dividend reinvestments) adjust the quantity held in a position without a matching buy/sell transaction.
+
+#### Corporate Action types
+
+`split`, `bonus`, `dividend_reinvested`
+
+#### Corporate Action object
+
+```json
+{
+  "id": "uuid",
+  "instrument_id": "uuid",
+  "account_id": "uuid",
+  "type": "bonus",
+  "date": "2026-04-01",
+  "quantity_delta": 5.0,
+  "split_ratio": null,
+  "price_per_unit_paise": null,
+  "notes": null,
+  "created_at": "2026-05-01 10:30:00"
+}
+```
+
+For `dividend_reinvested`, `price_per_unit_paise` records the price at which units were issued.
+
+#### GET /api/v1/investments/corporate-actions
+
+List all corporate actions for the authenticated user.
+
+**Query params**: `instrument_id` (optional filter)
+
+**Response 200**
+```json
+{ "corporate_actions": [ { ...CorporateAction } ] }
+```
+
+---
+
+#### POST /api/v1/investments/corporate-actions
+
+Create a corporate action.
+
+**Body**
+```json
+{
+  "instrument_id": "uuid",
+  "account_id": "uuid",
+  "type": "bonus",
+  "date": "2026-04-01",
+  "quantity_delta": 5.0,
+  "split_ratio": null,
+  "price_per_unit_paise": null,
+  "notes": null
+}
+```
+
+Validation:
+- `instrument_id`: must exist and belong to the authenticated user
+- `account_id`: must exist, belong to the user, and be active
+- `type`: must be `split`, `bonus`, or `dividend_reinvested`
+- `date`: YYYY-MM-DD
+- `quantity_delta`: non-zero (negative for reverse splits)
+- `price_per_unit_paise`: required and >= 0 when type is `dividend_reinvested`
+
+**Response 201**
+```json
+{ "corporate_action": { ...CorporateAction } }
+```
+
+**Errors**: `UNAUTHORIZED`, `NOT_FOUND`, `BAD_REQUEST`
+
+---
+
+#### DELETE /api/v1/investments/corporate-actions/:id
+
+Hard-delete a corporate action.
+
+**Response 204** (no body)
+
+**Errors**: `UNAUTHORIZED`, `NOT_FOUND`
+
+---
+
+### Investment Transactions (extended fields)
+
+When creating or updating a transaction of type `investment_buy` or `investment_sell`, the body may include investment-specific detail fields:
+
+```json
+{
+  "account_id": "uuid",
+  "type": "investment_buy",
+  "date": "2026-05-01",
+  "description": "Buy RELIANCE",
+  "amount_paise": 2900000000,
+  "instrument_id": "uuid",
+  "quantity": 10.0,
+  "price_per_unit_paise": 290000000,
+  "fees_paise": 50000
+}
+```
+
+For cross-currency transfers, the body may include FX fields:
+
+```json
+{
+  "account_id": "uuid",
+  "transfer_account_id": "uuid",
+  "type": "transfer",
+  "date": "2026-05-01",
+  "description": "USD to INR transfer",
+  "amount_paise": 83450000,
+  "fx_rate": 83.45,
+  "fx_to_amount_paise": 1000000,
+  "fx_fee_paise": 20000
+}
+```
+
+For a transfer between accounts with different currencies, `fx_rate` and `fx_to_amount_paise` are required. `fx_rate` is destination currency units per source currency unit; `fx_to_amount_paise` must equal `amount_paise * fx_rate` rounded to the nearest smallest unit. Same-currency transfers must not send FX fields.
+
+These fields are stored on the transaction row. Investment-specific fields are stored in `investment_transaction_details` and used for holdings computation. The `amount_paise` on the parent transaction always represents the source-account debit/credit for balance-effect purposes.
+
+For a cash `dividend`, `amount_paise` is the cash income amount and `category_id` must point to an income category. The body may include `instrument_id` to link the dividend to an instrument; quantity, price, and fee fields are ignored for dividend holdings and do not affect allocation.
+
+Holdings summary totals are returned in INR. Invested totals use historical buy-date FX rates where available; current value and unrealised P&L use the latest saved FX rate for each instrument currency. Holding rows also include native-currency values plus nullable INR converted fields:
+
+- `invested_value_inr_paise`
+- `current_value_inr_paise`
+- `unrealised_pnl_inr_paise`
+- `realised_pnl_inr_paise`

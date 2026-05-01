@@ -41,6 +41,16 @@ async fn main() {
         .nest("/api/v1/accounts", routes::accounts::router())
         .nest("/api/v1/categories", routes::categories::router())
         .nest("/api/v1/transactions", routes::transactions::router())
+        .nest("/api/v1/fx-rates", routes::fx_rates::router())
+        .nest(
+            "/api/v1/instruments",
+            routes::instruments::instruments_router(),
+        )
+        .nest(
+            "/api/v1/investments/corporate-actions",
+            routes::instruments::corporate_actions_router(),
+        )
+        .nest("/api/v1/investments", routes::investments::router())
         .with_state(state)
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive());

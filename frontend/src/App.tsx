@@ -8,6 +8,7 @@ import AccountsPage from './pages/AccountsPage'
 import TransactionsPage from './pages/TransactionsPage'
 import BudgetPage from './pages/BudgetPage'
 import InvestmentsPage from './pages/InvestmentsPage'
+import FxRatesPage from './pages/FxRatesPage'
 import GoalsPage from './pages/GoalsPage'
 import ReportsPage from './pages/ReportsPage'
 import SettingsPage from './pages/SettingsPage'
@@ -32,6 +33,7 @@ export default function App() {
             <Route path="transactions" element={<TransactionsPage />} />
             <Route path="budget" element={<BudgetPage />} />
             <Route path="investments" element={<InvestmentsPage />} />
+            <Route path="fx-rates" element={<FxRatesPage />} />
             <Route path="goals" element={<GoalsPage />} />
             <Route path="reports" element={<ReportsPage />} />
             <Route path="settings" element={<SettingsPage />} />

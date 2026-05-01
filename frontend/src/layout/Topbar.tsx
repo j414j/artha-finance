@@ -8,6 +8,7 @@ const TAB_ROUTES = [
   { label: 'Transactions', path: '/transactions' },
   { label: 'Budget', path: '/budget' },
   { label: 'Investments', path: '/investments' },
+  { label: 'FX', path: '/fx-rates' },
   { label: 'Goals', path: '/goals' },
   { label: 'Reports', path: '/reports' },
 ]

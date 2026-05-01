@@ -18,7 +18,9 @@ use crate::{
             UpdateAccountRequest, ACCOUNT_TYPES,
         },
         audit::insert_audit_log,
+        fx_rate::FxRateMap,
     },
+    routes::investments::{compute_holdings, HoldingView},
     state::AppState,
 };
 
@@ -33,7 +35,7 @@ async fn list_accounts(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
 ) -> Result<Json<Value>> {
-    let accounts = fetch_active_accounts(&state.db, &user.id).await?;
+    let accounts = fetch_active_accounts_with_latest_inr(&state.db, &user.id).await?;
     Ok(Json(json!(build_accounts_response(accounts))))
 }
 
@@ -41,7 +43,7 @@ async fn account_summary(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
 ) -> Result<Json<Value>> {
-    let accounts = fetch_active_accounts(&state.db, &user.id).await?;
+    let accounts = fetch_active_accounts_with_latest_inr(&state.db, &user.id).await?;
     Ok(Json(json!({ "summary": summarize_accounts(&accounts) })))
 }
 
@@ -384,6 +386,65 @@ async fn fetch_active_accounts(pool: &SqlitePool, user_id: &str) -> Result<Vec<A
     .await?;
 
     Ok(accounts)
+}
+
+async fn fetch_active_accounts_with_latest_inr(
+    pool: &SqlitePool,
+    user_id: &str,
+) -> Result<Vec<Account>> {
+    let mut accounts = fetch_active_accounts(pool, user_id).await?;
+    let fx_rates = FxRateMap::latest_for_user(pool, user_id).await?;
+    let holdings = compute_holdings(pool, user_id, None).await?;
+
+    for account in &mut accounts {
+        let cash_balance_paise = account.balance_paise;
+        let cash_inr_value_paise = fx_rates
+            .convert_to_inr_paise(&account.currency, cash_balance_paise)
+            .unwrap_or(account.inr_value_paise);
+
+        account.inr_value_paise = cash_inr_value_paise;
+
+        if is_investment_account(&account.account_type) {
+            let mut holdings_value_paise = 0;
+            let mut holdings_inr_value_paise = 0;
+
+            for holding in holdings.iter().filter(|h| h.account_id == account.id) {
+                if let Some(value) =
+                    convert_holding_to_account_currency(&fx_rates, holding, &account.currency)
+                {
+                    holdings_value_paise += value;
+                }
+                if let Some(value) = holding
+                    .current_value_inr_paise
+                    .or(holding.invested_value_inr_paise)
+                {
+                    holdings_inr_value_paise += value;
+                }
+            }
+
+            account.balance_paise = cash_balance_paise + holdings_value_paise;
+            account.inr_value_paise = cash_inr_value_paise + holdings_inr_value_paise;
+        }
+    }
+
+    Ok(accounts)
+}
+
+fn is_investment_account(account_type: &str) -> bool {
+    matches!(account_type, "demat" | "mutual_fund")
+}
+
+fn convert_holding_to_account_currency(
+    fx_rates: &FxRateMap,
+    holding: &HoldingView,
+    account_currency: &str,
+) -> Option<i64> {
+    let value = holding
+        .current_value_paise
+        .unwrap_or(holding.invested_value_paise);
+    fx_rates
+        .rate_between(&holding.instrument_currency, account_currency)
+        .map(|rate| (value as f64 * rate).round() as i64)
 }
 
 async fn fetch_active_account(pool: &SqlitePool, id: &str, user_id: &str) -> Result<Account> {

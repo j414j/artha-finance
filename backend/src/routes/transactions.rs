@@ -24,8 +24,9 @@ use crate::{
         },
         category::Category,
         transaction::{
-            category_type_for_transaction, is_valid_recurring_frequency, is_valid_transaction_type,
-            requires_destination_account, supports_splits, CreateTransactionRequest, Transaction,
+            category_type_for_transaction, is_investment_type, is_valid_recurring_frequency,
+            is_valid_transaction_type, requires_destination_account, requires_investment_detail,
+            supports_splits, CreateTransactionRequest, InvestmentDetailView, Transaction,
             TransactionSplit, TransactionSplitInput, TransactionSplitView, TransactionSummary,
             TransactionView, UpdateTransactionRequest, RECURRING_FREQUENCIES, TRANSACTION_TYPES,
         },
@@ -100,6 +101,26 @@ async fn create_transaction(
     apply_account_deltas_in_tx(&mut tx, &user.id, &new_deltas).await?;
     replace_account_effects_in_tx(&mut tx, &id, &user.id, &new_deltas).await?;
 
+    if let Some(ref detail) = input.investment_detail {
+        let cost_basis = if input.transaction_type == "investment_sell" {
+            compute_cost_basis_in_tx(
+                &mut tx,
+                &user.id,
+                &input.account_id,
+                &detail.instrument_id,
+                &input.date,
+            )
+            .await?
+        } else {
+            None
+        };
+        let detail_with_basis = ValidatedInvestmentDetail {
+            cost_basis_per_unit_paise: cost_basis,
+            ..detail.clone()
+        };
+        upsert_investment_detail_in_tx(&mut tx, &id, &user.id, &detail_with_basis).await?;
+    }
+
     let view = fetch_transaction_view_in_tx(&mut tx, &id, &user.id).await?;
     insert_audit_log(
         &mut tx,
@@ -134,6 +155,7 @@ async fn update_transaction(
         &current,
         &current_splits,
         current_tags,
+        before_view.investment_detail.as_ref(),
     )
     .await?;
 
@@ -164,6 +186,29 @@ async fn update_transaction(
     replace_tags_in_tx(&mut tx, &id, &user.id, &input.tags).await?;
     apply_account_deltas_in_tx(&mut tx, &user.id, &combined_deltas).await?;
     replace_account_effects_in_tx(&mut tx, &id, &user.id, &new_deltas).await?;
+
+    if let Some(ref detail) = input.investment_detail {
+        let cost_basis = if input.transaction_type == "investment_sell" {
+            compute_cost_basis_in_tx(
+                &mut tx,
+                &user.id,
+                &input.account_id,
+                &detail.instrument_id,
+                &input.date,
+            )
+            .await?
+        } else {
+            None
+        };
+        let detail_with_basis = ValidatedInvestmentDetail {
+            cost_basis_per_unit_paise: cost_basis,
+            ..detail.clone()
+        };
+        upsert_investment_detail_in_tx(&mut tx, &id, &user.id, &detail_with_basis).await?;
+    } else if !is_investment_type(&input.transaction_type) {
+        // type was changed away from investment type, clean up any stale detail
+        delete_investment_detail_in_tx(&mut tx, &id, &user.id).await?;
+    }
 
     let after_view = fetch_transaction_view_in_tx(&mut tx, &id, &user.id).await?;
     insert_audit_log(
@@ -427,7 +472,8 @@ impl NormalizedTransactionQuery {
 #[derive(Debug, Clone)]
 struct TransactionCursor {
     date: String,
-    id: String,
+    created_at: String,
+    rowid: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -444,6 +490,10 @@ struct ValidatedTransactionInput {
     splits: Vec<ValidatedSplitInput>,
     is_recurring: bool,
     recurrence_frequency: Option<String>,
+    fx_rate: Option<f64>,
+    fx_to_amount_paise: Option<i64>,
+    fx_fee_paise: i64,
+    investment_detail: Option<ValidatedInvestmentDetail>,
 }
 
 #[derive(Debug, Clone)]
@@ -451,6 +501,15 @@ struct ValidatedSplitInput {
     category_id: String,
     amount_paise: i64,
     notes: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ValidatedInvestmentDetail {
+    instrument_id: String,
+    quantity: f64,
+    price_per_unit_paise: i64,
+    fees_paise: i64,
+    cost_basis_per_unit_paise: Option<i64>, // computed on sell
 }
 
 impl ValidatedTransactionInput {
@@ -475,6 +534,13 @@ impl ValidatedTransactionInput {
                 splits: req.splits.unwrap_or_default(),
                 is_recurring: req.is_recurring.unwrap_or(false),
                 recurrence_frequency: req.recurrence_frequency,
+                fx_rate: req.fx_rate,
+                fx_to_amount_paise: req.fx_to_amount_paise,
+                fx_fee_paise: req.fx_fee_paise,
+                instrument_id: req.instrument_id,
+                quantity: req.quantity,
+                price_per_unit_paise: req.price_per_unit_paise,
+                fees_paise: req.fees_paise,
             },
         )
         .await
@@ -487,7 +553,12 @@ impl ValidatedTransactionInput {
         current: &Transaction,
         current_splits: &[TransactionSplit],
         current_tags: Vec<String>,
+        current_investment_detail: Option<&InvestmentDetailView>,
     ) -> Result<Self> {
+        let fx_context_was_supplied = req.account_id.is_some()
+            || req.transfer_account_id.is_some()
+            || req.transaction_type.is_some()
+            || req.amount_paise.is_some();
         let splits_were_supplied = req.splits.is_some();
         let splits = match req.splits {
             Some(splits) => splits,
@@ -536,6 +607,35 @@ impl ValidatedTransactionInput {
                     Some(frequency) => frequency,
                     None => current.recurrence_frequency.clone(),
                 },
+                fx_rate: match req.fx_rate {
+                    Some(rate) => rate,
+                    None if fx_context_was_supplied => None,
+                    None => current.fx_rate,
+                },
+                fx_to_amount_paise: match req.fx_to_amount_paise {
+                    Some(amount) => amount,
+                    None if fx_context_was_supplied => None,
+                    None => current.fx_to_amount_paise,
+                },
+                fx_fee_paise: match req.fx_fee_paise {
+                    Some(fee) => fee,
+                    None if fx_context_was_supplied => None,
+                    None => Some(current.fx_fee_paise),
+                },
+                // Investment detail fields: use request if provided, fall back to current detail
+                instrument_id: match req.instrument_id {
+                    Some(id) => id,
+                    None => current_investment_detail.map(|d| d.instrument_id.clone()),
+                },
+                quantity: req
+                    .quantity
+                    .or_else(|| current_investment_detail.map(|d| d.quantity)),
+                price_per_unit_paise: req
+                    .price_per_unit_paise
+                    .or_else(|| current_investment_detail.map(|d| d.price_per_unit_paise)),
+                fees_paise: req
+                    .fees_paise
+                    .or_else(|| current_investment_detail.map(|d| d.fees_paise)),
             },
         )
         .await
@@ -555,6 +655,13 @@ struct TransactionInputParts {
     splits: Vec<TransactionSplitInput>,
     is_recurring: bool,
     recurrence_frequency: Option<String>,
+    fx_rate: Option<f64>,
+    fx_to_amount_paise: Option<i64>,
+    fx_fee_paise: Option<i64>,
+    instrument_id: Option<String>,
+    quantity: Option<f64>,
+    price_per_unit_paise: Option<i64>,
+    fees_paise: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -567,6 +674,7 @@ struct BulkTransactionRequest {
 
 #[derive(Debug, Clone, FromRow)]
 struct TransactionJoinedRow {
+    rowid: i64,
     id: String,
     account_id: String,
     account_name: String,
@@ -583,6 +691,9 @@ struct TransactionJoinedRow {
     recurrence_frequency: Option<String>,
     created_at: String,
     updated_at: String,
+    fx_rate: Option<f64>,
+    fx_to_amount_paise: Option<i64>,
+    fx_fee_paise: i64,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -621,6 +732,24 @@ async fn validate_transaction_input(
         validate_transfer_account_id(parts.transfer_account_id, &transaction_type)?;
     let recurrence_frequency = validate_recurrence(parts.is_recurring, parts.recurrence_frequency)?;
 
+    let (fx_rate, fx_to_amount_paise, fx_fee_paise) = validate_fx_fields(
+        parts.fx_rate,
+        parts.fx_to_amount_paise,
+        parts.fx_fee_paise,
+        &transaction_type,
+    )?;
+
+    let investment_detail = validate_investment_detail(
+        pool,
+        user_id,
+        parts.instrument_id,
+        parts.quantity,
+        parts.price_per_unit_paise,
+        parts.fees_paise,
+        &transaction_type,
+    )
+    .await?;
+
     Ok(ValidatedTransactionInput {
         account_id: normalize_required_id(parts.account_id, "account_id")?,
         transfer_account_id,
@@ -634,7 +763,161 @@ async fn validate_transaction_input(
         splits,
         is_recurring: parts.is_recurring,
         recurrence_frequency,
+        fx_rate,
+        fx_to_amount_paise,
+        fx_fee_paise,
+        investment_detail,
     })
+}
+
+fn validate_fx_fields(
+    fx_rate: Option<f64>,
+    fx_to_amount_paise: Option<i64>,
+    fx_fee_paise: Option<i64>,
+    transaction_type: &str,
+) -> Result<(Option<f64>, Option<i64>, i64)> {
+    let fee = fx_fee_paise.unwrap_or(0);
+    if fee < 0 {
+        return Err(AppError::BadRequest(
+            "fx_fee_paise cannot be negative".into(),
+        ));
+    }
+
+    let has_fx = fx_rate.is_some() || fx_to_amount_paise.is_some() || fee != 0;
+
+    if has_fx && transaction_type != "transfer" {
+        return Err(AppError::BadRequest(
+            "FX fields are only allowed for transfer transactions".into(),
+        ));
+    }
+
+    if has_fx {
+        let rate = fx_rate.ok_or_else(|| {
+            AppError::BadRequest("fx_rate is required when fx_to_amount_paise is set".into())
+        })?;
+        if rate <= 0.0 {
+            return Err(AppError::BadRequest("fx_rate must be positive".into()));
+        }
+        let to_amount = fx_to_amount_paise.ok_or_else(|| {
+            AppError::BadRequest("fx_to_amount_paise is required when fx_rate is set".into())
+        })?;
+        if to_amount <= 0 {
+            return Err(AppError::BadRequest(
+                "fx_to_amount_paise must be positive".into(),
+            ));
+        }
+        Ok((Some(rate), Some(to_amount), fee))
+    } else {
+        Ok((None, None, fee))
+    }
+}
+
+async fn validate_investment_detail(
+    pool: &SqlitePool,
+    user_id: &str,
+    instrument_id: Option<String>,
+    quantity: Option<f64>,
+    price_per_unit_paise: Option<i64>,
+    fees_paise: Option<i64>,
+    transaction_type: &str,
+) -> Result<Option<ValidatedInvestmentDetail>> {
+    let has_investment_fields = instrument_id.is_some()
+        || quantity.is_some()
+        || price_per_unit_paise.is_some()
+        || fees_paise.is_some();
+
+    if !is_investment_type(transaction_type) {
+        if has_investment_fields {
+            return Err(AppError::BadRequest(
+                "Investment fields are only allowed for investment_buy, investment_sell, and dividend transactions".into(),
+            ));
+        }
+        return Ok(None);
+    }
+
+    if transaction_type == "dividend" {
+        return match instrument_id {
+            Some(instrument_id) => {
+                let instrument_id =
+                    validate_active_instrument_id(pool, user_id, Some(instrument_id)).await?;
+                Ok(Some(ValidatedInvestmentDetail {
+                    instrument_id,
+                    // Dividends are cash income. These neutral values exist only because
+                    // the optional instrument link is stored in the investment detail table.
+                    quantity: 1.0,
+                    price_per_unit_paise: 0,
+                    fees_paise: 0,
+                    cost_basis_per_unit_paise: None,
+                }))
+            }
+            None => Ok(None),
+        };
+    }
+
+    if requires_investment_detail(transaction_type) && !has_investment_fields {
+        return Err(AppError::BadRequest(format!(
+            "{transaction_type} transactions require investment detail fields (instrument_id, quantity, price_per_unit_paise)"
+        )));
+    }
+
+    if !has_investment_fields {
+        // dividend without detail is allowed
+        return Ok(None);
+    }
+
+    let instrument_id = validate_active_instrument_id(pool, user_id, instrument_id).await?;
+
+    let qty = quantity.ok_or_else(|| {
+        AppError::BadRequest("quantity is required for investment transactions".into())
+    })?;
+    if qty <= 0.0 {
+        return Err(AppError::BadRequest("quantity must be positive".into()));
+    }
+
+    let price = price_per_unit_paise.ok_or_else(|| {
+        AppError::BadRequest("price_per_unit_paise is required for investment transactions".into())
+    })?;
+    if price < 0 {
+        return Err(AppError::BadRequest(
+            "price_per_unit_paise cannot be negative".into(),
+        ));
+    }
+
+    let fees = fees_paise.unwrap_or(0);
+    if fees < 0 {
+        return Err(AppError::BadRequest("fees_paise cannot be negative".into()));
+    }
+
+    Ok(Some(ValidatedInvestmentDetail {
+        instrument_id,
+        quantity: qty,
+        price_per_unit_paise: price,
+        fees_paise: fees,
+        cost_basis_per_unit_paise: None, // computed later for sells
+    }))
+}
+
+async fn validate_active_instrument_id(
+    pool: &SqlitePool,
+    user_id: &str,
+    instrument_id: Option<String>,
+) -> Result<String> {
+    let instrument_id = instrument_id.ok_or_else(|| {
+        AppError::BadRequest("instrument_id is required for investment transactions".into())
+    })?;
+    let instrument_id = normalize_required_id(instrument_id, "instrument_id")?;
+
+    let exists: Option<(String,)> =
+        sqlx::query_as("SELECT id FROM instruments WHERE id = ? AND user_id = ? AND is_active = 1")
+            .bind(&instrument_id)
+            .bind(user_id)
+            .fetch_optional(pool)
+            .await?;
+    if exists.is_none() {
+        return Err(AppError::NotFound("Instrument not found".into()));
+    }
+
+    Ok(instrument_id)
 }
 
 async fn validate_splits(
@@ -818,15 +1101,61 @@ async fn calculate_new_deltas_in_tx(
         contexts.push(destination.clone());
     }
 
+    validate_transfer_fx_against_accounts(input, &account, destination_account.as_ref())?;
+
     let deltas = calculate_account_deltas(&TransactionEffectInput {
         transaction_type: input.transaction_type.clone(),
         amount_paise: input.amount_paise,
         account,
         destination_account,
+        fx_to_amount_paise: input.fx_to_amount_paise,
     })
     .map_err(AppError::BadRequest)?;
 
     Ok((non_zero_deltas(deltas), contexts))
+}
+
+fn validate_transfer_fx_against_accounts(
+    input: &ValidatedTransactionInput,
+    account: &AccountBalanceContext,
+    destination_account: Option<&AccountBalanceContext>,
+) -> Result<()> {
+    if input.transaction_type != "transfer" {
+        return Ok(());
+    }
+
+    let Some(destination) = destination_account else {
+        return Ok(());
+    };
+
+    let cross_currency = account.currency != destination.currency;
+    let has_fx =
+        input.fx_rate.is_some() || input.fx_to_amount_paise.is_some() || input.fx_fee_paise != 0;
+
+    if cross_currency {
+        let rate = input.fx_rate.ok_or_else(|| {
+            AppError::BadRequest(
+                "Cross-currency transfers require fx_rate and fx_to_amount_paise".into(),
+            )
+        })?;
+        let to_amount = input.fx_to_amount_paise.ok_or_else(|| {
+            AppError::BadRequest(
+                "Cross-currency transfers require fx_rate and fx_to_amount_paise".into(),
+            )
+        })?;
+        let expected = (input.amount_paise as f64 * rate).round() as i64;
+        if (expected - to_amount).abs() > 1 {
+            return Err(AppError::BadRequest(
+                "fx_to_amount_paise must match amount_paise multiplied by fx_rate".into(),
+            ));
+        }
+    } else if has_fx {
+        return Err(AppError::BadRequest(
+            "FX fields are only allowed when transfer accounts use different currencies".into(),
+        ));
+    }
+
+    Ok(())
 }
 
 async fn account_context_for_input(
@@ -877,6 +1206,7 @@ async fn soft_delete_transaction_in_tx(
     ensure_balances_can_apply(&contexts, &reverse_old_deltas)?;
 
     apply_account_deltas_in_tx(tx, user_id, &reverse_old_deltas).await?;
+    delete_investment_detail_in_tx(tx, id, user_id).await?;
     sqlx::query(
         "UPDATE transactions
          SET deleted_at = strftime('%Y-%m-%d %H:%M:%S', 'now'),
@@ -986,8 +1316,14 @@ fn append_transaction_filters(
                 .push_bind(cursor.date.clone())
                 .push(" OR (t.date = ")
                 .push_bind(cursor.date.clone())
-                .push(" AND t.id < ")
-                .push_bind(cursor.id.clone())
+                .push(" AND t.created_at < ")
+                .push_bind(cursor.created_at.clone())
+                .push(") OR (t.date = ")
+                .push_bind(cursor.date.clone())
+                .push(" AND t.created_at = ")
+                .push_bind(cursor.created_at.clone())
+                .push(" AND t.rowid < ")
+                .push_bind(cursor.rowid)
                 .push("))");
         }
     }
@@ -1001,7 +1337,7 @@ async fn fetch_transaction_rows(
     let mut builder = QueryBuilder::<Sqlite>::new(transaction_select_sql());
     append_transaction_filters(&mut builder, user_id, filters, true);
     builder
-        .push(" ORDER BY t.date DESC, t.id DESC LIMIT ")
+        .push(" ORDER BY t.date DESC, t.created_at DESC, t.rowid DESC LIMIT ")
         .push_bind(filters.limit + 1);
 
     Ok(builder.build_query_as().fetch_all(pool).await?)
@@ -1038,7 +1374,14 @@ async fn hydrate_transaction_views(
     for row in rows {
         let tags = fetch_transaction_tags(pool, &row.id, user_id).await?;
         let splits = fetch_transaction_split_views(pool, &row.id, user_id).await?;
-        views.push(row_to_view(row, tags, splits));
+        let transaction_type = row.transaction_type.clone();
+        let transaction_id = row.id.clone();
+        let mut view = row_to_view(row, tags, splits);
+        if is_investment_type(&transaction_type) {
+            view.investment_detail =
+                fetch_investment_detail(pool, &transaction_id, user_id).await?;
+        }
+        views.push(view);
     }
     Ok(views)
 }
@@ -1059,8 +1402,13 @@ async fn fetch_transaction_view_in_tx(
     .ok_or_else(|| AppError::NotFound("Transaction not found".into()))?;
     let tags = fetch_transaction_tags_in_tx(tx, id, user_id).await?;
     let splits = fetch_transaction_split_views_in_tx(tx, id, user_id).await?;
+    let transaction_type = row.transaction_type.clone();
+    let mut view = row_to_view(row, tags, splits);
+    if is_investment_type(&transaction_type) {
+        view.investment_detail = fetch_investment_detail_in_tx(tx, id, user_id).await?;
+    }
 
-    Ok(row_to_view(row, tags, splits))
+    Ok(view)
 }
 
 fn row_to_view(
@@ -1087,11 +1435,16 @@ fn row_to_view(
         recurrence_frequency: row.recurrence_frequency,
         created_at: row.created_at,
         updated_at: row.updated_at,
+        fx_rate: row.fx_rate,
+        fx_to_amount_paise: row.fx_to_amount_paise,
+        fx_fee_paise: row.fx_fee_paise,
+        investment_detail: None, // hydrated separately
     }
 }
 
 fn transaction_select_sql() -> &'static str {
-    "SELECT t.id,
+    "SELECT t.rowid AS rowid,
+            t.id,
             t.account_id,
             a.name AS account_name,
             t.transfer_account_id,
@@ -1106,7 +1459,10 @@ fn transaction_select_sql() -> &'static str {
             t.is_recurring,
             t.recurrence_frequency,
             t.created_at,
-            t.updated_at
+            t.updated_at,
+            t.fx_rate,
+            t.fx_to_amount_paise,
+            t.fx_fee_paise
      FROM transactions t
      JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
      LEFT JOIN accounts ta ON ta.id = t.transfer_account_id AND ta.user_id = t.user_id
@@ -1122,8 +1478,9 @@ async fn insert_transaction_in_tx(
     sqlx::query(
         "INSERT INTO transactions (
             id, user_id, account_id, transfer_account_id, type, date, description,
-            amount_paise, category_id, notes, is_recurring, recurrence_frequency
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            amount_paise, category_id, notes, is_recurring, recurrence_frequency,
+            fx_rate, fx_to_amount_paise, fx_fee_paise
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(id)
     .bind(user_id)
@@ -1137,6 +1494,9 @@ async fn insert_transaction_in_tx(
     .bind(&input.notes)
     .bind(input.is_recurring)
     .bind(&input.recurrence_frequency)
+    .bind(input.fx_rate)
+    .bind(input.fx_to_amount_paise)
+    .bind(input.fx_fee_paise)
     .execute(&mut **tx)
     .await?;
 
@@ -1161,6 +1521,9 @@ async fn update_transaction_in_tx(
              notes = ?,
              is_recurring = ?,
              recurrence_frequency = ?,
+             fx_rate = ?,
+             fx_to_amount_paise = ?,
+             fx_fee_paise = ?,
              updated_at = strftime('%Y-%m-%d %H:%M:%S', 'now')
          WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
     )
@@ -1174,12 +1537,195 @@ async fn update_transaction_in_tx(
     .bind(&input.notes)
     .bind(input.is_recurring)
     .bind(&input.recurrence_frequency)
+    .bind(input.fx_rate)
+    .bind(input.fx_to_amount_paise)
+    .bind(input.fx_fee_paise)
     .bind(id)
     .bind(user_id)
     .execute(&mut **tx)
     .await?;
 
     Ok(())
+}
+
+async fn upsert_investment_detail_in_tx(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    transaction_id: &str,
+    user_id: &str,
+    detail: &ValidatedInvestmentDetail,
+) -> Result<()> {
+    // Delete any existing detail for this transaction first
+    sqlx::query(
+        "DELETE FROM investment_transaction_details
+         WHERE user_id = ? AND transaction_id = ?",
+    )
+    .bind(user_id)
+    .bind(transaction_id)
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query(
+        "INSERT INTO investment_transaction_details (
+            id, user_id, transaction_id, instrument_id, quantity,
+            price_per_unit_paise, fees_paise, cost_basis_per_unit_paise
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(user_id)
+    .bind(transaction_id)
+    .bind(&detail.instrument_id)
+    .bind(detail.quantity)
+    .bind(detail.price_per_unit_paise)
+    .bind(detail.fees_paise)
+    .bind(detail.cost_basis_per_unit_paise)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn delete_investment_detail_in_tx(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    transaction_id: &str,
+    user_id: &str,
+) -> Result<()> {
+    sqlx::query(
+        "DELETE FROM investment_transaction_details
+         WHERE user_id = ? AND transaction_id = ?",
+    )
+    .bind(user_id)
+    .bind(transaction_id)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn fetch_investment_detail(
+    pool: &SqlitePool,
+    transaction_id: &str,
+    user_id: &str,
+) -> Result<Option<InvestmentDetailView>> {
+    #[derive(sqlx::FromRow)]
+    struct InvDetailRow {
+        instrument_id: String,
+        instrument_name: String,
+        instrument_ticker: Option<String>,
+        quantity: f64,
+        price_per_unit_paise: i64,
+        fees_paise: i64,
+        cost_basis_per_unit_paise: Option<i64>,
+    }
+
+    let row = sqlx::query_as::<_, InvDetailRow>(
+        "SELECT itd.instrument_id,
+                i.name AS instrument_name,
+                i.ticker AS instrument_ticker,
+                itd.quantity,
+                itd.price_per_unit_paise,
+                itd.fees_paise,
+                itd.cost_basis_per_unit_paise
+         FROM investment_transaction_details itd
+         JOIN instruments i ON i.id = itd.instrument_id
+         WHERE itd.user_id = ? AND itd.transaction_id = ?",
+    )
+    .bind(user_id)
+    .bind(transaction_id)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(row.map(|r| InvestmentDetailView {
+        instrument_id: r.instrument_id,
+        instrument_name: r.instrument_name,
+        instrument_ticker: r.instrument_ticker,
+        quantity: r.quantity,
+        price_per_unit_paise: r.price_per_unit_paise,
+        fees_paise: r.fees_paise,
+        cost_basis_per_unit_paise: r.cost_basis_per_unit_paise,
+    }))
+}
+
+async fn fetch_investment_detail_in_tx(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    transaction_id: &str,
+    user_id: &str,
+) -> Result<Option<InvestmentDetailView>> {
+    #[derive(sqlx::FromRow)]
+    struct InvDetailRow {
+        instrument_id: String,
+        instrument_name: String,
+        instrument_ticker: Option<String>,
+        quantity: f64,
+        price_per_unit_paise: i64,
+        fees_paise: i64,
+        cost_basis_per_unit_paise: Option<i64>,
+    }
+
+    let row = sqlx::query_as::<_, InvDetailRow>(
+        "SELECT itd.instrument_id,
+                i.name AS instrument_name,
+                i.ticker AS instrument_ticker,
+                itd.quantity,
+                itd.price_per_unit_paise,
+                itd.fees_paise,
+                itd.cost_basis_per_unit_paise
+         FROM investment_transaction_details itd
+         JOIN instruments i ON i.id = itd.instrument_id
+         WHERE itd.user_id = ? AND itd.transaction_id = ?",
+    )
+    .bind(user_id)
+    .bind(transaction_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    Ok(row.map(|r| InvestmentDetailView {
+        instrument_id: r.instrument_id,
+        instrument_name: r.instrument_name,
+        instrument_ticker: r.instrument_ticker,
+        quantity: r.quantity,
+        price_per_unit_paise: r.price_per_unit_paise,
+        fees_paise: r.fees_paise,
+        cost_basis_per_unit_paise: r.cost_basis_per_unit_paise,
+    }))
+}
+
+async fn compute_cost_basis_in_tx(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    user_id: &str,
+    account_id: &str,
+    instrument_id: &str,
+    date: &str,
+) -> Result<Option<i64>> {
+    #[derive(sqlx::FromRow)]
+    struct CostBasisRow {
+        total_cost: Option<f64>,
+        total_qty: Option<f64>,
+    }
+
+    let row = sqlx::query_as::<_, CostBasisRow>(
+        "SELECT
+            SUM(CAST(itd.quantity * itd.price_per_unit_paise AS REAL) + itd.fees_paise) AS total_cost,
+            SUM(itd.quantity) AS total_qty
+         FROM investment_transaction_details itd
+         JOIN transactions t ON t.id = itd.transaction_id
+         WHERE t.user_id = ?
+           AND t.account_id = ?
+           AND itd.instrument_id = ?
+           AND t.type = 'investment_buy'
+           AND t.deleted_at IS NULL
+           AND t.date <= ?",
+    )
+    .bind(user_id)
+    .bind(account_id)
+    .bind(instrument_id)
+    .bind(date)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    Ok(row.and_then(|r| match (r.total_cost, r.total_qty) {
+        (Some(cost), Some(qty)) if qty > 0.0 => Some((cost / qty) as i64),
+        _ => None,
+    }))
 }
 
 async fn replace_splits_in_tx(
@@ -1331,7 +1877,10 @@ async fn fetch_active_transaction_in_tx(
                 recurrence_frequency,
                 deleted_at,
                 created_at,
-                updated_at
+                updated_at,
+                fx_rate,
+                fx_to_amount_paise,
+                fx_fee_paise
          FROM transactions
          WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
     )
@@ -1660,19 +2209,23 @@ fn non_zero_deltas(deltas: Vec<AccountDelta>) -> Vec<AccountDelta> {
 }
 
 fn transaction_cursor(row: &TransactionJoinedRow) -> String {
-    format!("{}|{}", row.date, row.id)
+    format!("{}|{}|{}", row.date, row.created_at, row.rowid)
 }
 
 fn parse_cursor(cursor: String) -> Result<TransactionCursor> {
     let cursor = cursor.trim();
-    let Some((date, id)) = cursor.split_once('|') else {
+    let mut parts = cursor.split('|');
+    let (Some(date), Some(created_at), Some(rowid), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
         return Err(AppError::BadRequest(
-            "cursor must use the format date|id".into(),
+            "cursor must use the format date|created_at|rowid".into(),
         ));
     };
     Ok(TransactionCursor {
         date: normalize_date_filter(date.to_string(), "cursor date")?,
-        id: normalize_required_id(id.to_string(), "cursor id")?,
+        created_at: normalize_required_string(created_at.to_string(), "cursor created_at")?,
+        rowid: parse_cursor_rowid(rowid)?,
     })
 }
 
@@ -1823,6 +2376,28 @@ fn normalize_required_id(id: String, label: &str) -> Result<String> {
     }
 }
 
+fn normalize_required_string(value: String, label: &str) -> Result<String> {
+    let value = value.trim().to_string();
+    if value.is_empty() {
+        Err(AppError::BadRequest(format!("{label} is required")))
+    } else {
+        Ok(value)
+    }
+}
+
+fn parse_cursor_rowid(rowid: &str) -> Result<i64> {
+    let rowid = rowid
+        .trim()
+        .parse::<i64>()
+        .map_err(|_| AppError::BadRequest("cursor rowid must be a positive integer".into()))?;
+    if rowid <= 0 {
+        return Err(AppError::BadRequest(
+            "cursor rowid must be a positive integer".into(),
+        ));
+    }
+    Ok(rowid)
+}
+
 fn normalize_optional_id(id: Option<String>) -> Option<String> {
     id.map(|id| id.trim().to_string())
         .filter(|id| !id.is_empty())
@@ -1938,10 +2513,52 @@ mod tests {
     }
 
     #[test]
-    fn parses_cursor_date_and_id() {
-        let cursor = parse_cursor("2026-05-01|abc".into()).expect("cursor");
+    fn parses_cursor_date_created_at_and_rowid() {
+        let cursor = parse_cursor("2026-05-01|2026-05-01 10:30:00|42".into()).expect("cursor");
 
         assert_eq!(cursor.date, "2026-05-01");
-        assert_eq!(cursor.id, "abc");
+        assert_eq!(cursor.created_at, "2026-05-01 10:30:00");
+        assert_eq!(cursor.rowid, 42);
+    }
+
+    #[tokio::test]
+    async fn dividend_instrument_link_does_not_require_quantity() {
+        let pool = SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("sqlite pool");
+        sqlx::query(
+            "CREATE TABLE instruments (
+                id TEXT PRIMARY KEY NOT NULL,
+                user_id TEXT NOT NULL,
+                is_active INTEGER NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("create instruments table");
+        sqlx::query("INSERT INTO instruments (id, user_id, is_active) VALUES (?, ?, 1)")
+            .bind("instrument-1")
+            .bind("user-1")
+            .execute(&pool)
+            .await
+            .expect("insert instrument");
+
+        let detail = validate_investment_detail(
+            &pool,
+            "user-1",
+            Some("instrument-1".into()),
+            None,
+            None,
+            None,
+            "dividend",
+        )
+        .await
+        .expect("dividend validation")
+        .expect("instrument link detail");
+
+        assert_eq!(detail.instrument_id, "instrument-1");
+        assert_eq!(detail.quantity, 1.0);
+        assert_eq!(detail.price_per_unit_paise, 0);
+        assert_eq!(detail.fees_paise, 0);
     }
 }

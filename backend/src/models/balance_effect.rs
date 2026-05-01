@@ -17,6 +17,8 @@ pub struct TransactionEffectInput {
     pub amount_paise: i64,
     pub account: AccountBalanceContext,
     pub destination_account: Option<AccountBalanceContext>,
+    // For FX transfers: amount credited to destination in its own currency
+    pub fx_to_amount_paise: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,7 +59,18 @@ pub fn calculate_account_deltas(
             require_asset(destination, "Transfer destination must be an asset account")?;
             ensure_distinct_accounts(&input.account, destination)?;
             deltas.push(delta(&input.account, -input.amount_paise));
-            deltas.push(delta(destination, input.amount_paise));
+            // For FX transfers, destination gets fx_to_amount_paise; otherwise same amount
+            let dest_amount = input.fx_to_amount_paise.unwrap_or(input.amount_paise);
+            let dest_inr = if destination.currency == "INR" {
+                dest_amount
+            } else {
+                0
+            };
+            deltas.push(AccountDelta {
+                account_id: destination.id.clone(),
+                balance_delta_paise: dest_amount,
+                inr_value_delta_paise: dest_inr,
+            });
         }
         "credit_card_payment" => {
             let destination = require_destination(input)?;
@@ -95,6 +108,7 @@ pub fn calculate_account_deltas(
                 "Investment buy must use an investment asset account",
             )?;
             require_investment_account(&input.account)?;
+            deltas.push(delta(&input.account, -input.amount_paise));
         }
         "investment_sell" => {
             require_asset(
@@ -102,6 +116,7 @@ pub fn calculate_account_deltas(
                 "Investment sell must use an investment asset account",
             )?;
             require_investment_account(&input.account)?;
+            deltas.push(delta(&input.account, input.amount_paise));
         }
         "valuation_update" => {
             let balance_delta = input.amount_paise - input.account.balance_paise;
@@ -240,6 +255,7 @@ mod tests {
             amount_paise: 10_000,
             account: source,
             destination_account: destination,
+            fx_to_amount_paise: None,
         }
     }
 
@@ -325,7 +341,7 @@ mod tests {
     }
 
     #[test]
-    fn investment_buy_is_record_only_until_holdings_exist() {
+    fn investment_buy_decreases_account_balance() {
         let deltas = calculate_account_deltas(&input(
             "investment_buy",
             account("demat", "demat", 100_000),
@@ -333,7 +349,9 @@ mod tests {
         ))
         .expect("investment buy effect");
 
-        assert!(deltas.is_empty());
+        assert_eq!(deltas.len(), 1);
+        assert_eq!(deltas[0].account_id, "demat");
+        assert_eq!(deltas[0].balance_delta_paise, -10_000);
     }
 
     #[test]

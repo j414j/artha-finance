@@ -41,6 +41,9 @@ pub struct Transaction {
     pub deleted_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    pub fx_rate: Option<f64>,
+    pub fx_to_amount_paise: Option<i64>,
+    pub fx_fee_paise: i64,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize)]
@@ -85,6 +88,15 @@ pub struct CreateTransactionRequest {
     pub splits: Option<Vec<TransactionSplitInput>>,
     pub is_recurring: Option<bool>,
     pub recurrence_frequency: Option<String>,
+    // FX transfer fields (only for transfer type when accounts have different currencies)
+    pub fx_rate: Option<f64>,
+    pub fx_to_amount_paise: Option<i64>,
+    pub fx_fee_paise: Option<i64>,
+    // Investment detail fields (for investment_buy, investment_sell, dividend)
+    pub instrument_id: Option<String>,
+    pub quantity: Option<f64>,
+    pub price_per_unit_paise: Option<i64>,
+    pub fees_paise: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -102,6 +114,26 @@ pub struct UpdateTransactionRequest {
     pub splits: Option<Vec<TransactionSplitInput>>,
     pub is_recurring: Option<bool>,
     pub recurrence_frequency: Option<Option<String>>,
+    // FX fields (for cross-currency transfer edits)
+    pub fx_rate: Option<Option<f64>>,
+    pub fx_to_amount_paise: Option<Option<i64>>,
+    pub fx_fee_paise: Option<Option<i64>>,
+    // Investment fields (for investment_buy/sell/dividend edits)
+    pub instrument_id: Option<Option<String>>,
+    pub quantity: Option<f64>,
+    pub price_per_unit_paise: Option<i64>,
+    pub fees_paise: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct InvestmentDetailView {
+    pub instrument_id: String,
+    pub instrument_name: String,
+    pub instrument_ticker: Option<String>,
+    pub quantity: f64,
+    pub price_per_unit_paise: i64,
+    pub fees_paise: i64,
+    pub cost_basis_per_unit_paise: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -125,6 +157,10 @@ pub struct TransactionView {
     pub recurrence_frequency: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    pub fx_rate: Option<f64>,
+    pub fx_to_amount_paise: Option<i64>,
+    pub fx_fee_paise: i64,
+    pub investment_detail: Option<InvestmentDetailView>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -169,4 +205,15 @@ pub fn requires_destination_account(transaction_type: &str) -> bool {
 
 pub fn supports_splits(transaction_type: &str) -> bool {
     matches!(transaction_type, "income" | "expense")
+}
+
+pub fn is_investment_type(transaction_type: &str) -> bool {
+    matches!(
+        transaction_type,
+        "investment_buy" | "investment_sell" | "dividend"
+    )
+}
+
+pub fn requires_investment_detail(transaction_type: &str) -> bool {
+    matches!(transaction_type, "investment_buy" | "investment_sell")
 }

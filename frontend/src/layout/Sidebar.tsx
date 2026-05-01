@@ -12,6 +12,7 @@ const navItems: NavItem[] = [
   { icon: '≡', route: '/transactions', title: 'Transactions' },
   { icon: '◑', route: '/budget', title: 'Budget' },
   { icon: '△', route: '/investments', title: 'Investments' },
+  { icon: '⇄', route: '/fx-rates', title: 'FX Rates' },
   { icon: '◎', route: '/goals', title: 'Goals' },
   { icon: '▦', route: '/reports', title: 'Reports' },
 ]

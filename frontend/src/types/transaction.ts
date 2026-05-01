@@ -42,6 +42,18 @@ export interface Transaction {
   splits: TransactionSplit[];
   is_recurring: boolean;
   recurrence_frequency: RecurrenceFrequency | null;
+  fx_rate: number | null;
+  fx_to_amount_paise: number | null;
+  fx_fee_paise: number;
+  investment_detail: {
+    instrument_id: string;
+    instrument_name: string;
+    instrument_ticker: string | null;
+    quantity: number;
+    price_per_unit_paise: number;
+    fees_paise: number;
+    cost_basis_per_unit_paise: number | null;
+  } | null;
   created_at: string;
   updated_at: string;
 }
@@ -72,6 +84,13 @@ export interface TransactionPayload {
   splits?: TransactionSplitPayload[];
   is_recurring?: boolean;
   recurrence_frequency?: RecurrenceFrequency | null;
+  fx_rate?: number | null;
+  fx_to_amount_paise?: number | null;
+  fx_fee_paise?: number | null;
+  instrument_id?: string | null;
+  quantity?: number | null;
+  price_per_unit_paise?: number | null;
+  fees_paise?: number | null;
 }
 
 export type TransactionPatch = Partial<TransactionPayload>;
