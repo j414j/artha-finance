@@ -20,3 +20,6 @@ backend/.env.local
 .DS_Store
 
 graphify-out
+
+*.tar
+*.tar.gz

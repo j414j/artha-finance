@@ -425,9 +425,9 @@ impl NormalizedTransactionQuery {
         }
 
         let limit = query.limit.unwrap_or(50);
-        if !(1..=100).contains(&limit) {
+        if !(1..=500).contains(&limit) {
             return Err(AppError::BadRequest(
-                "limit must be between 1 and 100".into(),
+                "limit must be between 1 and 500".into(),
             ));
         }
 

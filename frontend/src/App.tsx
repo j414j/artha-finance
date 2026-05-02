@@ -11,6 +11,12 @@ import InvestmentsPage from './pages/InvestmentsPage'
 import FxRatesPage from './pages/FxRatesPage'
 import GoalsPage from './pages/GoalsPage'
 import ReportsPage from './pages/ReportsPage'
+import CashFlowReport from './pages/reports/CashFlowReport'
+import NetWorthReport from './pages/reports/NetWorthReport'
+import SpendingReport from './pages/reports/SpendingReport'
+import BudgetReport from './pages/reports/BudgetReport'
+import InvestmentsReport from './pages/reports/InvestmentsReport'
+import GoalsReport from './pages/reports/GoalsReport'
 import SettingsPage from './pages/SettingsPage'
 
 export default function App() {
@@ -36,6 +42,12 @@ export default function App() {
             <Route path="fx-rates" element={<FxRatesPage />} />
             <Route path="goals" element={<GoalsPage />} />
             <Route path="reports" element={<ReportsPage />} />
+            <Route path="reports/cashflow" element={<CashFlowReport />} />
+            <Route path="reports/net-worth" element={<NetWorthReport />} />
+            <Route path="reports/spending" element={<SpendingReport />} />
+            <Route path="reports/budget" element={<BudgetReport />} />
+            <Route path="reports/investments" element={<InvestmentsReport />} />
+            <Route path="reports/goals" element={<GoalsReport />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
