@@ -1,0 +1,28 @@
+services:
+  backend:
+    image: ${BACKEND_IMAGE:-artha/backend:latest}
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_URL=sqlite:/app/data/artha.db
+      - HOST=0.0.0.0
+      - PORT=8080
+      - RUST_LOG=artha_backend=debug,tower_http=debug
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-artha/frontend:latest}
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped

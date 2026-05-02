@@ -15,6 +15,7 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY --from=builder /app/target/release/artha .
+COPY --from=builder /app/target/release/create_user .
 COPY --from=builder /app/migrations ./migrations
 
 EXPOSE 8080
