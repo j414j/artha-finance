@@ -133,8 +133,28 @@ async fn archive_category(
     Path(id): Path<String>,
 ) -> Result<StatusCode> {
     let before = fetch_active_category(&state.db, &id, &user.id).await?;
-    ensure_category_unused(&state.db, &user.id, &id).await?;
     let mut tx = state.db.begin().await?;
+
+    sqlx::query(
+        "UPDATE transactions
+         SET category_id = NULL,
+             updated_at = strftime('%Y-%m-%d %H:%M:%S', 'now')
+         WHERE user_id = ? AND category_id = ? AND deleted_at IS NULL",
+    )
+    .bind(&user.id)
+    .bind(&id)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        "UPDATE transaction_splits
+         SET category_id = NULL
+         WHERE user_id = ? AND category_id = ?",
+    )
+    .bind(&user.id)
+    .bind(&id)
+    .execute(&mut *tx)
+    .await?;
 
     sqlx::query(
         "UPDATE categories
@@ -155,7 +175,10 @@ async fn archive_category(
         &id,
         json!({
             "before": category_to_node(&before),
-            "after": { "is_active": false },
+            "after": {
+                "is_active": false,
+                "reassigned_transactions": "uncategorized",
+            },
         }),
     )
     .await?;
@@ -294,43 +317,6 @@ async fn validate_parent(
             "Parent category type must match child category type".into(),
         ));
     }
-    Ok(())
-}
-
-async fn ensure_category_unused(pool: &sqlx::SqlitePool, user_id: &str, id: &str) -> Result<()> {
-    #[derive(sqlx::FromRow)]
-    struct CountRow {
-        count: i64,
-    }
-
-    let row = sqlx::query_as::<_, CountRow>(
-        "SELECT (
-            SELECT COUNT(*) FROM transactions
-            WHERE user_id = ? AND category_id = ? AND deleted_at IS NULL
-        ) + (
-            SELECT COUNT(*)
-            FROM transaction_splits s
-            JOIN transactions t
-              ON t.id = s.transaction_id
-             AND t.user_id = s.user_id
-            WHERE s.user_id = ?
-              AND s.category_id = ?
-              AND t.deleted_at IS NULL
-        ) AS count",
-    )
-    .bind(user_id)
-    .bind(id)
-    .bind(user_id)
-    .bind(id)
-    .fetch_one(pool)
-    .await?;
-
-    if row.count > 0 {
-        return Err(AppError::BadRequest(
-            "Category is used by active transactions and cannot be archived yet".into(),
-        ));
-    }
-
     Ok(())
 }
 

@@ -19,7 +19,7 @@ export type RecurrenceFrequency =
 
 export interface TransactionSplit {
   id: string;
-  category_id: string;
+  category_id: string | null;
   category_name: string | null;
   amount_paise: number;
   notes: string | null;

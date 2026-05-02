@@ -1770,7 +1770,7 @@ function formFromTransaction(transaction: Transaction): TransactionFormState {
     recurrenceFrequency: transaction.recurrence_frequency ?? "monthly",
     splitMode: transaction.splits.length > 0,
     splits: transaction.splits.map((split) => ({
-      categoryId: split.category_id,
+      categoryId: split.category_id ?? "",
       amount: paiseToInput(split.amount_paise),
       notes: split.notes ?? "",
     })),

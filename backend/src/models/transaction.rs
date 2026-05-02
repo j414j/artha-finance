@@ -52,7 +52,7 @@ pub struct TransactionSplit {
     #[serde(skip_serializing)]
     pub user_id: String,
     pub transaction_id: String,
-    pub category_id: String,
+    pub category_id: Option<String>,
     pub amount_paise: i64,
     pub notes: Option<String>,
 }
@@ -166,7 +166,7 @@ pub struct TransactionView {
 #[derive(Debug, Clone, Serialize)]
 pub struct TransactionSplitView {
     pub id: String,
-    pub category_id: String,
+    pub category_id: Option<String>,
     pub category_name: Option<String>,
     pub amount_paise: i64,
     pub notes: Option<String>,

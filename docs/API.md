@@ -275,11 +275,9 @@ Update category name, parent, color, or icon. `type` cannot be changed after cre
 ```
 
 ### DELETE /api/v1/categories/:id
-Archive an unused category. Categories referenced by active transactions or splits cannot be archived until reassignment/merge exists.
+Archive a category. Any active transactions or split lines that reference it are reassigned to uncategorised.
 
 **Response 204** (no body)
-
-**Errors**: `UNAUTHORIZED`, `NOT_FOUND`, `BAD_REQUEST`
 
 ---
 
@@ -1064,11 +1062,11 @@ Update an instrument. All fields are optional. Pass `null` to clear optional fie
 
 #### DELETE /api/v1/instruments/:id
 
-Soft-delete (archive) an instrument (`is_active = false`). Archived instruments are excluded from active lists.
+Soft-delete (archive) an instrument (`is_active = false`). Archived instruments are excluded from active lists. Instruments with active holdings cannot be archived.
 
 **Response 204** (no body)
 
-**Errors**: `UNAUTHORIZED`, `NOT_FOUND`
+**Errors**: `UNAUTHORIZED`, `NOT_FOUND`, `BAD_REQUEST`
 
 ---
 

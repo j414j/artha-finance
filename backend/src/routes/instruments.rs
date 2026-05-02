@@ -232,6 +232,7 @@ async fn archive_instrument(
     Path(id): Path<String>,
 ) -> Result<StatusCode> {
     let before = fetch_instrument(&state.db, &id, &user.id).await?;
+    ensure_instrument_has_no_active_holdings(&state.db, &user.id, &id).await?;
     let mut tx = state.db.begin().await?;
 
     sqlx::query(
@@ -257,6 +258,69 @@ async fn archive_instrument(
     tx.commit().await?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn ensure_instrument_has_no_active_holdings(
+    pool: &SqlitePool,
+    user_id: &str,
+    instrument_id: &str,
+) -> Result<()> {
+    #[derive(sqlx::FromRow)]
+    struct CountRow {
+        count: i64,
+    }
+
+    let row = sqlx::query_as::<_, CountRow>(
+        "WITH txn_positions AS (
+            SELECT t.account_id AS account_id,
+                   SUM(CASE
+                           WHEN t.type = 'investment_buy' THEN itd.quantity
+                           WHEN t.type = 'investment_sell' THEN -itd.quantity
+                           ELSE 0
+                       END) AS quantity
+            FROM investment_transaction_details itd
+            JOIN transactions t
+              ON t.id = itd.transaction_id
+             AND t.user_id = itd.user_id
+            WHERE itd.user_id = ?
+              AND itd.instrument_id = ?
+              AND t.deleted_at IS NULL
+              AND t.type IN ('investment_buy', 'investment_sell')
+            GROUP BY t.account_id
+        ),
+        ca_positions AS (
+            SELECT account_id, SUM(quantity_delta) AS quantity
+            FROM corporate_actions
+            WHERE user_id = ? AND instrument_id = ?
+            GROUP BY account_id
+        ),
+        combined AS (
+            SELECT account_id, quantity FROM txn_positions
+            UNION ALL
+            SELECT account_id, quantity FROM ca_positions
+        )
+        SELECT COUNT(*) AS count
+        FROM (
+            SELECT account_id, SUM(quantity) AS quantity_held
+            FROM combined
+            GROUP BY account_id
+            HAVING quantity_held > 0.0001
+        ) active_holdings",
+    )
+    .bind(user_id)
+    .bind(instrument_id)
+    .bind(user_id)
+    .bind(instrument_id)
+    .fetch_one(pool)
+    .await?;
+
+    if row.count > 0 {
+        return Err(AppError::BadRequest(
+            "Instrument has active holdings and cannot be archived".into(),
+        ));
+    }
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

@@ -565,7 +565,7 @@ impl ValidatedTransactionInput {
             None => current_splits
                 .iter()
                 .map(|split| TransactionSplitInput {
-                    category_id: split.category_id.clone(),
+                    category_id: split.category_id.clone().unwrap_or_default(),
                     amount_paise: split.amount_paise,
                     notes: split.notes.clone(),
                 })
@@ -699,7 +699,7 @@ struct TransactionJoinedRow {
 #[derive(Debug, Clone, FromRow)]
 struct TransactionSplitJoinedRow {
     id: String,
-    category_id: String,
+    category_id: Option<String>,
     category_name: Option<String>,
     amount_paise: i64,
     notes: Option<String>,
