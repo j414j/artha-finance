@@ -16,8 +16,12 @@ import {
   Legend,
   ReferenceArea,
 } from 'recharts'
+import { sankey as d3Sankey, sankeyLinkHorizontal, sankeyLeft } from 'd3-sankey'
+import type { SankeyNode, SankeyLink } from 'd3-sankey'
 import { getTransactions } from '../../api/transactions'
 import type { Transaction } from '../../types/transaction'
+import { getCategories } from '../../api/categories'
+import type { CategoryNode } from '../../types/category'
 import { formatMoney } from '../../utils/format'
 
 // ─── Period helpers ───────────────────────────────────────────────────────────
@@ -41,7 +45,10 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
 }
 
 function toISO(d: Date): string {
-  return d.toISOString().slice(0, 10)
+  const y = d.getFullYear()
+  const mo = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${mo}-${day}`
 }
 
 function getPeriodRange(key: PeriodKey, custom: { from: string; to: string }): { from: string; to: string } {
@@ -99,15 +106,18 @@ function rangeLabel(from: string, to: string): string {
 // ─── Data aggregation ─────────────────────────────────────────────────────────
 
 interface SourceRow { label: string; amount: number }
+interface ExpenseGroup { label: string; amount: number; children: SourceRow[] }
 
 interface FlowData {
   incomeSources: SourceRow[]
-  expenseCategories: SourceRow[]
+  expenseCategories: SourceRow[]   // flat list for right panel
+  expenseGroups: ExpenseGroup[]    // hierarchical for Sankey
   totalIncome: number
   totalExpenses: number
   investments: number
   loans: number
   netSavings: number
+  existingFunds: number
 }
 
 interface MonthlyPoint {
@@ -125,11 +135,38 @@ interface CumulativePoint {
   cumSavings: number
 }
 
-function aggregateFlowData(txns: Transaction[]): FlowData {
+type CatInfo = { name: string; parent_id: string | null }
+
+function buildCatMap(nodes: CategoryNode[]): Map<string, CatInfo> {
+  const map = new Map<string, CatInfo>()
+  function traverse(nodes: CategoryNode[]) {
+    for (const node of nodes) {
+      map.set(node.id, { name: node.name, parent_id: node.parent_id })
+      traverse(node.children)
+    }
+  }
+  traverse(nodes)
+  return map
+}
+
+function getRootAndChild(catId: string | null, fallback: string, catMap: Map<string, CatInfo>): { root: string; child: string | null } {
+  if (!catId || !catMap.has(catId)) return { root: fallback, child: null }
+  const ancestors: string[] = []
+  let id: string | null = catId
+  while (id && catMap.has(id)) {
+    const info: CatInfo = catMap.get(id)!
+    ancestors.unshift(info.name)
+    id = info.parent_id
+  }
+  return { root: ancestors[0] ?? fallback, child: ancestors.length > 1 ? ancestors[1] : null }
+}
+
+function aggregateFlowData(txns: Transaction[], catMap: Map<string, CatInfo>): FlowData {
   const incomeMap = new Map<string, number>()
-  const expenseMap = new Map<string, number>()
+  const expTopMap = new Map<string, { amount: number; children: Map<string, number> }>()
   let investments = 0
   let loans = 0
+
   for (const t of txns) {
     if (t.type === 'income') {
       const k = t.category_name ?? t.description
@@ -137,32 +174,49 @@ function aggregateFlowData(txns: Transaction[]): FlowData {
     } else if (t.type === 'dividend') {
       incomeMap.set('Dividends', (incomeMap.get('Dividends') ?? 0) + t.amount_paise)
     } else if (t.type === 'expense') {
-      const k = t.category_name ?? 'Uncategorized'
-      expenseMap.set(k, (expenseMap.get(k) ?? 0) + t.amount_paise)
+      const { root, child } = getRootAndChild(t.category_id, t.category_name ?? 'Uncategorized', catMap)
+      const existing = expTopMap.get(root) ?? { amount: 0, children: new Map() }
+      existing.amount += t.amount_paise
+      if (child && child !== root) {
+        existing.children.set(child, (existing.children.get(child) ?? 0) + t.amount_paise)
+      }
+      expTopMap.set(root, existing)
     } else if (t.type === 'investment_buy') {
       investments += t.amount_paise
     } else if (t.type === 'loan_repayment') {
       loans += t.amount_paise
     }
   }
+
   const sortedIncome = [...incomeMap.entries()].sort((a, b) => b[1] - a[1])
-  const sortedExpense = [...expenseMap.entries()].sort((a, b) => b[1] - a[1])
   const incomeSources: SourceRow[] = sortedIncome.length <= 5
     ? sortedIncome.map(([label, amount]) => ({ label, amount }))
     : [
         ...sortedIncome.slice(0, 5).map(([label, amount]) => ({ label, amount })),
         { label: 'Other Income', amount: sortedIncome.slice(5).reduce((s, [, v]) => s + v, 0) },
       ]
-  const expenseCategories: SourceRow[] = sortedExpense.length <= 8
-    ? sortedExpense.map(([label, amount]) => ({ label, amount }))
-    : [
-        ...sortedExpense.slice(0, 8).map(([label, amount]) => ({ label, amount })),
-        { label: 'Other Expenses', amount: sortedExpense.slice(8).reduce((s, [, v]) => s + v, 0) },
-      ]
+
+  const sortedExpTop = [...expTopMap.entries()].sort((a, b) => b[1].amount - a[1].amount)
+  const topGroups = sortedExpTop.length <= 8 ? sortedExpTop : [...sortedExpTop.slice(0, 8), ['Other Expenses', {
+    amount: sortedExpTop.slice(8).reduce((s, [, v]) => s + v.amount, 0),
+    children: new Map<string, number>(),
+  }] as [string, { amount: number; children: Map<string, number> }]]
+
+  const expenseGroups: ExpenseGroup[] = topGroups.map(([label, data]) => ({
+    label: label as string,
+    amount: (data as { amount: number; children: Map<string, number> }).amount,
+    children: [...(data as { amount: number; children: Map<string, number> }).children.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([l, a]) => ({ label: l, amount: a })),
+  }))
+
+  const expenseCategories: SourceRow[] = expenseGroups.map(({ label, amount }) => ({ label, amount }))
   const totalIncome = incomeSources.reduce((s, r) => s + r.amount, 0)
-  const totalExpenses = expenseCategories.reduce((s, r) => s + r.amount, 0)
+  const totalExpenses = expenseGroups.reduce((s, r) => s + r.amount, 0)
+  const existingFunds = Math.max(0, totalExpenses + investments + loans - totalIncome)
   const netSavings = Math.max(0, totalIncome - totalExpenses - investments - loans)
-  return { incomeSources, expenseCategories, totalIncome, totalExpenses, investments, loans, netSavings }
+
+  return { incomeSources, expenseCategories, expenseGroups, totalIncome, totalExpenses, investments, loans, netSavings, existingFunds }
 }
 
 function aggregateMonthly(txns: Transaction[]): { monthly: MonthlyPoint[]; cumulative: CumulativePoint[] } {
@@ -194,104 +248,107 @@ function aggregateMonthly(txns: Transaction[]): { monthly: MonthlyPoint[]; cumul
   return { monthly, cumulative }
 }
 
-// ─── Sankey geometry ──────────────────────────────────────────────────────────
+// ─── Sankey via d3-sankey ─────────────────────────────────────────────────────
 
 const CHART_TOP = 20
 const CHART_BOTTOM = 460
-const NODE_GAP = 8
+const SANKEY_WIDTH = 840  // logical width of the layout extent
 const NODE_WIDTH = 14
-const COL_LEFT = 0
-const COL_MID = 493
-const COL_RIGHT = 886
-const CTRL_LM = 246
-const CTRL_LR = 510
+const NODE_PADDING = 14   // minimum gap between nodes in the same column
 
-interface NodeGeom {
-  label: string; amount: number
-  x: number; y: number; h: number
-  color: string; textColor: string; gradient: string
+// Per-node extra data
+interface NodeExtra {
+  id: string
+  label: string
+  nodeColor: string
+  textColor: string
+  amount: number  // original paise value for display
 }
-interface FlowGeom {
-  d: string; gradient: string
-  srcLabel: string; tgtLabel: string; amount: number; opacity: number
-}
-interface SankeyGeom {
-  incomeNodes: NodeGeom[]; expenseNodes: NodeGeom[]
-  destNodes: NodeGeom[]; flows: FlowGeom[]
+// Per-link extra data
+interface LinkExtra {
+  srcColor: string
+  tgtColor: string
 }
 
-function computeSankey(data: FlowData): SankeyGeom | null {
-  const { incomeSources, expenseCategories, totalIncome, totalExpenses, investments, loans, netSavings } = data
-  if (totalIncome === 0) return null
-  const chartH = CHART_BOTTOM - CHART_TOP
-  const incomeGaps = Math.max(0, incomeSources.length - 1) * NODE_GAP
-  const pxPerPaise = (chartH - incomeGaps) / totalIncome
-  let yCursor = CHART_TOP
-  const incomeNodes: NodeGeom[] = incomeSources.map(src => {
-    const h = Math.max(4, src.amount * pxPerPaise)
-    const node: NodeGeom = { label: src.label, amount: src.amount, x: COL_LEFT, y: yCursor, h, color: 'var(--green)', textColor: 'var(--green)', gradient: 'node-income' }
-    yCursor += h + NODE_GAP
-    return node
+type MyNode = SankeyNode<NodeExtra, LinkExtra>
+type MyLink = SankeyLink<NodeExtra, LinkExtra>
+
+function buildSankeyGraph(data: FlowData): { nodes: NodeExtra[]; links: Array<{ source: string; target: string; value: number } & LinkExtra> } {
+  const { incomeSources, expenseGroups, totalExpenses, investments, loans, netSavings, existingFunds } = data
+  const nodes: NodeExtra[] = []
+  const links: Array<{ source: string; target: string; value: number } & LinkExtra> = []
+
+  const add = (id: string, label: string, nodeColor: string, textColor: string, amount: number) =>
+    nodes.push({ id, label, nodeColor, textColor, amount })
+
+  const link = (source: string, target: string, value: number, srcColor: string, tgtColor: string) =>
+    links.push({ source, target, value, srcColor, tgtColor })
+
+  // Income sources → Income aggregate
+  incomeSources.forEach(src => {
+    add(`src:${src.label}`, src.label, '#009e78', '#00c896', src.amount)
+    link(`src:${src.label}`, 'Income', src.amount, '#00c896', '#00c896')
   })
-  const expenseGaps = Math.max(0, expenseCategories.length - 1) * NODE_GAP
-  const expenseH = totalExpenses * pxPerPaise
-  let expYCursor = CHART_TOP
-  const expenseNodes: NodeGeom[] = expenseCategories.map(cat => {
-    const h = Math.max(4, cat.amount * pxPerPaise)
-    const node: NodeGeom = { label: cat.label, amount: cat.amount, x: COL_MID, y: expYCursor, h, color: 'var(--red)', textColor: 'var(--red)', gradient: 'node-expense' }
-    expYCursor += h + NODE_GAP
-    return node
-  })
-  const expTotalH = expenseH + expenseGaps
-  const expOffset = Math.max(0, (chartH - expTotalH) / 2)
-  expenseNodes.forEach(n => { n.y += expOffset })
-  const dests: { label: string; amount: number; gradient: string; textColor: string }[] = []
-  if (investments > 0) dests.push({ label: 'Investments', amount: investments, gradient: 'node-invest', textColor: 'var(--purple)' })
-  if (loans > 0) dests.push({ label: 'Loan Repay', amount: loans, gradient: 'node-loan', textColor: 'var(--blue)' })
-  if (netSavings > 0) dests.push({ label: 'Net Savings', amount: netSavings, gradient: 'node-save', textColor: 'var(--accent)' })
-  const destGaps = Math.max(0, dests.length - 1) * NODE_GAP
-  let dYCursor = CHART_TOP
-  const destNodes: NodeGeom[] = dests.map(d => {
-    const h = Math.max(4, d.amount * pxPerPaise)
-    const node: NodeGeom = { label: d.label, amount: d.amount, x: COL_RIGHT, y: dYCursor, h, color: d.textColor, textColor: d.textColor, gradient: d.gradient }
-    dYCursor += h + NODE_GAP
-    return node
-  })
-  const destTotalH = dests.reduce((s, d) => s + Math.max(4, d.amount * pxPerPaise), 0) + destGaps
-  const destOffset = Math.max(0, (chartH - destTotalH) / 2)
-  destNodes.forEach(n => { n.y += destOffset })
-  const flows: FlowGeom[] = []
-  const srcCursors = incomeNodes.map(n => n.y)
-  const expCursors = expenseNodes.map(n => n.y)
-  const destCursors = destNodes.map(n => n.y)
-  function fp(srcX: number, srcY: number, srcH: number, tgtX: number, tgtY: number, tgtH: number, ctrlX: number): string {
-    return (
-      `M ${srcX + NODE_WIDTH},${srcY} C ${ctrlX},${srcY} ${ctrlX},${tgtY} ${tgtX},${tgtY} ` +
-      `L ${tgtX},${tgtY + tgtH} C ${ctrlX},${tgtY + tgtH} ${ctrlX},${srcY + srcH} ${srcX + NODE_WIDTH},${srcY + srcH} Z`
-    )
+
+  if (existingFunds > 0) {
+    add('Existing Funds', 'Existing Funds', '#2060dd', '#3a7fff', existingFunds)
+    link('Existing Funds', 'Income', existingFunds, '#3a7fff', '#3a7fff')
   }
-  for (let si = 0; si < incomeNodes.length; si++) {
-    const src = incomeNodes[si]
-    const srcRatio = src.amount / totalIncome
-    for (let ei = 0; ei < expenseNodes.length; ei++) {
-      const exp = expenseNodes[ei]
-      const flowAmount = src.amount * (exp.amount / totalIncome)
-      const flowH = Math.max(0.5, flowAmount * pxPerPaise)
-      flows.push({ d: fp(src.x, srcCursors[si], flowH, exp.x, expCursors[ei], flowH, CTRL_LM), gradient: 'grad-expense', srcLabel: src.label, tgtLabel: exp.label, amount: Math.round(flowAmount), opacity: 0.65 })
-      srcCursors[si] += flowH
-      expCursors[ei] += flowH
-    }
-    for (let di = 0; di < destNodes.length; di++) {
-      const dest = destNodes[di]
-      const flowAmount = srcRatio * dests[di].amount
-      const flowH = Math.max(0.5, flowAmount * pxPerPaise)
-      const gradient = dests[di].gradient === 'node-invest' ? 'grad-invest' : dests[di].gradient === 'node-loan' ? 'grad-loan' : 'grad-savings'
-      flows.push({ d: fp(src.x, srcCursors[si], flowH, dest.x, destCursors[di], flowH, CTRL_LR), gradient, srcLabel: src.label, tgtLabel: dest.label, amount: Math.round(flowAmount), opacity: 0.55 })
-      srcCursors[si] += flowH
-      destCursors[di] += flowH
-    }
+
+  add('Income', 'Income', '#009e78', '#00c896', data.totalIncome + existingFunds)
+
+  // Income → allocation nodes
+  if (totalExpenses > 0) {
+    add('Expenses', 'Expenses', '#c02040', '#f04060', totalExpenses)
+    link('Income', 'Expenses', totalExpenses, '#00c896', '#f04060')
   }
-  return { incomeNodes, expenseNodes, destNodes, flows }
+  if (investments > 0) {
+    add('Investments', 'Investments', '#6040c0', '#9060f0', investments)
+    link('Income', 'Investments', investments, '#00c896', '#9060f0')
+  }
+  if (loans > 0) {
+    add('Loan Repay', 'Loan Repay', '#2060dd', '#3a7fff', loans)
+    link('Income', 'Loan Repay', loans, '#00c896', '#3a7fff')
+  }
+  if (netSavings > 0) {
+    add('Net Savings', 'Net Savings', '#c07800', '#f0a500', netSavings)
+    link('Income', 'Net Savings', netSavings, '#00c896', '#f0a500')
+  }
+
+  // Expenses → expense categories
+  expenseGroups.forEach(cat => {
+    const catId = `cat:${cat.label}`
+    add(catId, cat.label, '#c02040', '#f04060', cat.amount)
+    link('Expenses', catId, cat.amount, '#f04060', '#f04060')
+
+    // Category → subcategories
+    cat.children.forEach(sub => {
+      const subId = `sub:${cat.label}:${sub.label}`
+      add(subId, sub.label, '#a01828', '#e05060', sub.amount)
+      link(catId, subId, sub.amount, '#f04060', '#e05060')
+    })
+  })
+
+  return { nodes, links }
+}
+
+function runSankeyLayout(data: FlowData): { nodes: MyNode[]; links: MyLink[] } | null {
+  const totalFlow = data.totalIncome + data.existingFunds
+  if (totalFlow === 0) return null
+
+  const { nodes: inputNodes, links: inputLinks } = buildSankeyGraph(data)
+
+  const layout = d3Sankey<NodeExtra, LinkExtra>()
+    .nodeId(d => d.id)
+    .nodeAlign(sankeyLeft)
+    .nodeWidth(NODE_WIDTH)
+    .nodePadding(NODE_PADDING)
+    .extent([[0, CHART_TOP], [SANKEY_WIDTH, CHART_BOTTOM]])
+
+  return layout({
+    nodes: inputNodes.map(n => ({ ...n })),
+    links: inputLinks.map(l => ({ ...l })),
+  }) as { nodes: MyNode[]; links: MyLink[] }
 }
 
 // ─── Shared styles ────────────────────────────────────────────────────────────
@@ -345,10 +402,15 @@ export default function CashFlowReport() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [catMap, setCatMap] = useState<Map<string, CatInfo>>(new Map())
   const [tooltip, setTooltip] = useState<TooltipState | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
   const range = getPeriodRange(period, { from: customFrom, to: customTo })
+
+  useEffect(() => {
+    getCategories().then(({ categories }) => setCatMap(buildCatMap(categories))).catch(() => {})
+  }, [])
 
   const fetchAll = useCallback(async (from: string, to: string) => {
     if (!from || !to) return
@@ -379,8 +441,8 @@ export default function CashFlowReport() {
     }
   }, [period, customFrom, customTo, fetchAll])
 
-  const flowData = aggregateFlowData(transactions)
-  const sankey = computeSankey(flowData)
+  const flowData = aggregateFlowData(transactions, catMap)
+  const sankeyGraph = runSankeyLayout(flowData)
   const { monthly, cumulative } = aggregateMonthly(transactions)
   const { totalIncome, totalExpenses, investments, loans, netSavings } = flowData
   const expRatio = totalIncome > 0 ? totalExpenses / totalIncome : 0
@@ -405,15 +467,17 @@ export default function CashFlowReport() {
       setTooltip(prev => prev ? { ...prev, x: e.clientX - rect.left + 12, y: e.clientY - rect.top - 8 } : null)
     }
   }
-  function showFlowTip(e: React.MouseEvent, flow: FlowGeom) {
+  function showLinkTip(e: React.MouseEvent, link: MyLink) {
     if (!containerRef.current) return
+    const src = link.source as MyNode
+    const tgt = link.target as MyNode
     const rect = containerRef.current.getBoundingClientRect()
-    setTooltip({ x: e.clientX - rect.left + 12, y: e.clientY - rect.top - 8, lines: [`${flow.srcLabel} → ${flow.tgtLabel}`, formatMoney(flow.amount)] })
+    setTooltip({ x: e.clientX - rect.left + 12, y: e.clientY - rect.top - 8, lines: [`${src.label} → ${tgt.label}`, formatMoney(link.value)] })
   }
-  function showNodeTip(e: React.MouseEvent, label: string, amount: number) {
+  function showNodeTip(e: React.MouseEvent, node: MyNode) {
     if (!containerRef.current) return
     const rect = containerRef.current.getBoundingClientRect()
-    setTooltip({ x: e.clientX - rect.left + 12, y: e.clientY - rect.top - 8, lines: [label, formatMoney(amount)] })
+    setTooltip({ x: e.clientX - rect.left + 12, y: e.clientY - rect.top - 8, lines: [node.label, formatMoney(node.amount)] })
   }
 
   const deficitMonths = monthly.filter(m => m.deficit).map(m => m.label)
@@ -479,56 +543,85 @@ export default function CashFlowReport() {
           <div style={{ background: 'var(--bg2)', padding: '16px 16px 12px', position: 'relative' }}>
             {loading && <div style={{ color: 'var(--text2)', fontFamily: 'var(--font-mono)', fontSize: 12, padding: '40px 0' }}>Loading…</div>}
             {error && !loading && <div style={{ color: 'var(--red)', fontFamily: 'var(--font-mono)', fontSize: 11, padding: '20px 0' }}>{error}</div>}
-            {!loading && !error && (
-              <svg width="100%" height="510" viewBox="-120 0 1080 510" style={{ display: 'block', overflow: 'visible' }}>
-                <defs>
-                  <linearGradient id="cf-grad-expense" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#00c896" stopOpacity={0.6}/><stop offset="100%" stopColor="#f04060" stopOpacity={0.4}/></linearGradient>
-                  <linearGradient id="cf-grad-invest" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#00c896" stopOpacity={0.5}/><stop offset="100%" stopColor="#9060f0" stopOpacity={0.6}/></linearGradient>
-                  <linearGradient id="cf-grad-loan" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#00c896" stopOpacity={0.5}/><stop offset="100%" stopColor="#3a7fff" stopOpacity={0.6}/></linearGradient>
-                  <linearGradient id="cf-grad-savings" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#00c896" stopOpacity={0.5}/><stop offset="100%" stopColor="#f0a500" stopOpacity={0.7}/></linearGradient>
-                  <linearGradient id="cf-node-income" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#00c896"/><stop offset="100%" stopColor="#009e78"/></linearGradient>
-                  <linearGradient id="cf-node-expense" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#f04060"/><stop offset="100%" stopColor="#c02040"/></linearGradient>
-                  <linearGradient id="cf-node-invest" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#9060f0"/><stop offset="100%" stopColor="#6040c0"/></linearGradient>
-                  <linearGradient id="cf-node-loan" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#3a7fff"/><stop offset="100%" stopColor="#2060dd"/></linearGradient>
-                  <linearGradient id="cf-node-save" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#f0a500"/><stop offset="100%" stopColor="#c07800"/></linearGradient>
-                </defs>
-                <line x1={200} y1={0} x2={200} y2={460} stroke="var(--border)" strokeWidth={1} strokeDasharray="3 4"/>
-                <line x1={690} y1={0} x2={690} y2={460} stroke="var(--border)" strokeWidth={1} strokeDasharray="3 4"/>
-                <text x={COL_LEFT} y={490} fontSize={9} fill="var(--text3)" fontFamily="IBM Plex Sans Condensed" fontWeight={600} letterSpacing={1}>INCOME SOURCES</text>
-                <text x={COL_MID - 30} y={490} fontSize={9} fill="var(--text3)" fontFamily="IBM Plex Sans Condensed" fontWeight={600} letterSpacing={1}>EXPENSE CATEGORIES</text>
-                <text x={COL_RIGHT - 10} y={490} fontSize={9} fill="var(--text3)" fontFamily="IBM Plex Sans Condensed" fontWeight={600} letterSpacing={1}>DESTINATIONS</text>
-                {!sankey && totalIncome === 0 && (
-                  <text x={440} y={240} textAnchor="middle" fontSize={13} fill="var(--text3)" fontFamily="IBM Plex Sans Condensed">No transactions in this period</text>
-                )}
-                {sankey && (<>
-                  {sankey.flows.map((flow, i) => (
-                    <path key={i} d={flow.d} fill={`url(#cf-${flow.gradient})`} opacity={flow.opacity} style={{ cursor: 'pointer' }}
-                      onMouseEnter={e => showFlowTip(e, flow)} onMouseLeave={() => setTooltip(null)}/>
-                  ))}
-                  {sankey.incomeNodes.map((n, i) => (
-                    <g key={`inc-${i}`}>
-                      <rect x={n.x} y={n.y} width={NODE_WIDTH} height={n.h} rx={2} fill={`url(#cf-${n.gradient})`} style={{ cursor: 'pointer' }} onMouseEnter={e => showNodeTip(e, n.label, n.amount)} onMouseLeave={() => setTooltip(null)}/>
-                      <text x={n.x - 6} y={n.y + n.h / 2 - 5} textAnchor="end" fontSize={11} fill="var(--text)" fontFamily="IBM Plex Sans Condensed" fontWeight={600}>{n.label}</text>
-                      <text x={n.x - 6} y={n.y + n.h / 2 + 8} textAnchor="end" fontSize={9} fill={n.textColor} fontFamily="IBM Plex Mono">{formatMoney(n.amount)}</text>
-                    </g>
-                  ))}
-                  {sankey.expenseNodes.map((n, i) => (
-                    <g key={`exp-${i}`}>
-                      <rect x={n.x} y={n.y} width={NODE_WIDTH} height={n.h} rx={2} fill={`url(#cf-${n.gradient})`} style={{ cursor: 'pointer' }} onMouseEnter={e => showNodeTip(e, n.label, n.amount)} onMouseLeave={() => setTooltip(null)}/>
-                      <text x={n.x + NODE_WIDTH + 8} y={n.y + n.h / 2 - 5} fontSize={11} fill="var(--text)" fontFamily="IBM Plex Sans Condensed" fontWeight={600}>{n.label}</text>
-                      <text x={n.x + NODE_WIDTH + 8} y={n.y + n.h / 2 + 8} fontSize={9} fill={n.textColor} fontFamily="IBM Plex Mono">{formatMoney(n.amount)}</text>
-                    </g>
-                  ))}
-                  {sankey.destNodes.map((n, i) => (
-                    <g key={`dest-${i}`}>
-                      <rect x={n.x} y={n.y} width={NODE_WIDTH} height={n.h} rx={2} fill={`url(#cf-${n.gradient})`} style={{ cursor: 'pointer' }} onMouseEnter={e => showNodeTip(e, n.label, n.amount)} onMouseLeave={() => setTooltip(null)}/>
-                      <text x={n.x + NODE_WIDTH + 8} y={n.y + n.h / 2 - 5} fontSize={11} fill="var(--text)" fontFamily="IBM Plex Sans Condensed" fontWeight={600}>{n.label}</text>
-                      <text x={n.x + NODE_WIDTH + 8} y={n.y + n.h / 2 + 8} fontSize={9} fill={n.textColor} fontFamily="IBM Plex Mono">{formatMoney(n.amount)}</text>
-                    </g>
-                  ))}
-                </>)}
-              </svg>
-            )}
+            {!loading && !error && (() => {
+              const linkPath = sankeyLinkHorizontal()
+              // Derive column x positions from node depths for divider lines
+              const colXs = sankeyGraph
+                ? [...new Set(sankeyGraph.nodes.map(n => n.x0 ?? 0))].sort((a, b) => a - b)
+                : []
+              // ViewBox: left label space (-130) + layout width + right label space (~180)
+              const vbW = 130 + SANKEY_WIDTH + NODE_WIDTH + 200
+              return (
+                <svg width="100%" height="510" viewBox={`-130 0 ${vbW} 510`} style={{ display: 'block', overflow: 'visible' }}>
+                  <defs>
+                    {/* Per-link gradients injected inline below */}
+                  </defs>
+                  {/* Column divider lines */}
+                  {colXs.slice(1).map((x, i) => {
+                    const mid = ((colXs[i] ?? 0) + NODE_WIDTH + x) / 2
+                    return <line key={i} x1={mid} y1={0} x2={mid} y2={460} stroke="var(--border)" strokeWidth={1} strokeDasharray="3 4"/>
+                  })}
+                  {!sankeyGraph && (
+                    <text x={SANKEY_WIDTH / 2} y={240} textAnchor="middle" fontSize={13} fill="var(--text3)" fontFamily="IBM Plex Sans Condensed">No transactions in this period</text>
+                  )}
+                  {sankeyGraph && (<>
+                    {/* Links (rendered behind nodes) */}
+                    {sankeyGraph.links.map((link, i) => {
+                      const src = link.source as MyNode
+                      const tgt = link.target as MyNode
+                      const gradId = `sk-link-${i}`
+                      return (
+                        <g key={i}>
+                          <defs>
+                            <linearGradient id={gradId} x1={src.x1} y1={0} x2={tgt.x0} y2={0} gradientUnits="userSpaceOnUse">
+                              <stop offset="0%" stopColor={link.srcColor} stopOpacity={0.55}/>
+                              <stop offset="100%" stopColor={link.tgtColor} stopOpacity={0.45}/>
+                            </linearGradient>
+                          </defs>
+                          <path
+                            d={linkPath(link as Parameters<typeof linkPath>[0]) ?? ''}
+                            fill="none"
+                            stroke={`url(#${gradId})`}
+                            strokeWidth={Math.max(1, link.width ?? 0)}
+                            style={{ cursor: 'pointer' }}
+                            onMouseEnter={e => showLinkTip(e, link)}
+                            onMouseLeave={() => setTooltip(null)}
+                          />
+                        </g>
+                      )
+                    })}
+                    {/* Nodes */}
+                    {sankeyGraph.nodes.map((n, i) => {
+                      const x0 = n.x0 ?? 0
+                      const y0 = n.y0 ?? 0
+                      const x1 = n.x1 ?? 0
+                      const y1 = n.y1 ?? 0
+                      const h = y1 - y0
+                      const mid = y0 + h / 2
+                      const isLeft = (n.depth ?? 0) === 0
+                      const showLabel = h >= 16  // only show inline label if node is tall enough
+                      return (
+                        <g key={i} style={{ cursor: 'pointer' }} onMouseEnter={e => showNodeTip(e, n)} onMouseLeave={() => setTooltip(null)}>
+                          <rect x={x0} y={y0} width={x1 - x0} height={h} rx={2} fill={n.nodeColor}/>
+                          {showLabel && (isLeft ? (<>
+                            <text x={x0 - 6} y={mid - 5} textAnchor="end" fontSize={11} fill="var(--text)" fontFamily="IBM Plex Sans Condensed" fontWeight={600}>{n.label}</text>
+                            <text x={x0 - 6} y={mid + 8} textAnchor="end" fontSize={9} fill={n.textColor} fontFamily="IBM Plex Mono">{formatMoney(n.amount)}</text>
+                          </>) : (<>
+                            <text x={x1 + 6} y={mid - 5} fontSize={11} fill="var(--text)" fontFamily="IBM Plex Sans Condensed" fontWeight={600}>{n.label}</text>
+                            <text x={x1 + 6} y={mid + 8} fontSize={9} fill={n.textColor} fontFamily="IBM Plex Mono">{formatMoney(n.amount)}</text>
+                          </>))}
+                        </g>
+                      )
+                    })}
+                    {/* Column header labels at bottom */}
+                    {colXs.map((x, i) => {
+                      const labels = ['INCOME SOURCES', 'INCOME', 'ALLOCATION', 'CATEGORIES', 'SUBCATEGORIES']
+                      return <text key={i} x={x} y={490} fontSize={9} fill="var(--text3)" fontFamily="IBM Plex Sans Condensed" fontWeight={600} letterSpacing={1}>{labels[i] ?? ''}</text>
+                    })}
+                  </>)}
+                </svg>
+              )
+            })()}
           </div>
 
           {/* Right panel */}
