@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 import { getAccounts } from "../api/accounts";
 import { getCategories } from "../api/categories";
@@ -114,6 +115,7 @@ interface SplitFormState {
 }
 
 export default function TransactionsPage() {
+  const [searchParams] = useSearchParams();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<CategoryNode[]>([]);
   const [instruments, setInstruments] = useState<Instrument[]>([]);
@@ -121,8 +123,16 @@ export default function TransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [summary, setSummary] = useState<TransactionSummary>(EMPTY_SUMMARY);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [draftFilters, setDraftFilters] = useState<FilterState>(defaultFilters);
-  const [appliedFilters, setAppliedFilters] = useState<FilterState>(defaultFilters);
+  const [draftFilters, setDraftFilters] = useState<FilterState>(() => {
+    const base = defaultFilters();
+    const accountId = searchParams.get("account_id");
+    return accountId ? { ...base, accountId } : base;
+  });
+  const [appliedFilters, setAppliedFilters] = useState<FilterState>(() => {
+    const base = defaultFilters();
+    const accountId = searchParams.get("account_id");
+    return accountId ? { ...base, accountId } : base;
+  });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -890,7 +900,7 @@ function TransactionTable({
                 </Td>
                 <Td align="right" mono color={tone.color}>
                   {tone.prefix}
-                  {formatMoney(transaction.amount_paise)}
+                  {formatMoney(transaction.inr_amount_paise)}
                 </Td>
                 <Td align="right">
                   <div style={{ position: "relative", display: "inline-block" }}>
@@ -1803,11 +1813,11 @@ function categorySpend(transactions: Transaction[]): Array<[string, number]> {
       if (transaction.splits.length > 0) {
         transaction.splits.forEach((split) => {
           const key = split.category_name ?? "Split";
-          totals.set(key, (totals.get(key) ?? 0) + split.amount_paise);
+          totals.set(key, (totals.get(key) ?? 0) + split.inr_amount_paise);
         });
       } else {
         const key = transaction.category_name ?? "Uncategorized";
-        totals.set(key, (totals.get(key) ?? 0) + transaction.amount_paise);
+        totals.set(key, (totals.get(key) ?? 0) + transaction.inr_amount_paise);
       }
     });
 

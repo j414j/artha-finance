@@ -112,6 +112,59 @@ Liability balances are stored as positive outstanding amounts and subtracted whe
 
 `inr_value_paise` is returned in base currency INR. For non-INR accounts, list and summary responses use the latest saved FX rate for `account.currency/INR` when available, falling back to the stored manual INR value when no rate exists. For `demat` and `mutual_fund` accounts, list and summary responses include brokerage cash plus current holdings value; holdings are converted to the account currency and INR when a saved FX rate is available.
 
+### GET /api/v1/accounts/:id
+Return a single active account with FX enrichment applied. For investment accounts (`demat`, `mutual_fund`), `balance_paise` includes holdings value and `cash_balance_paise` is the raw brokerage cash balance.
+
+**Response 200**
+```json
+{
+  "account": {
+    "id": "uuid",
+    "name": "Zerodha",
+    "type": "demat",
+    "currency": "INR",
+    "balance_paise": 154000000,
+    "cash_balance_paise": 4000000,
+    "inr_value_paise": 154000000
+  }
+}
+```
+
+**Errors**: `UNAUTHORIZED`, `NOT_FOUND`
+
+---
+
+### GET /api/v1/accounts/:id/balance-history
+Return a daily balance timeline for the specified account over the last N days (default 30, max 365).
+
+For regular accounts, `balance_paise` is the cash balance. For investment accounts (`demat`, `mutual_fund`), each point additionally includes `cash_paise` (brokerage cash), `holdings_paise` (total asset value at current prices), and `total_paise` (sum of both).
+
+**Query params**: `days` (integer, 1–365, default 30)
+
+**Response 200 — regular account**
+```json
+{
+  "balance_history": [
+    { "date": "2026-04-06", "balance_paise": 84200000 },
+    { "date": "2026-04-07", "balance_paise": 84200000 }
+  ]
+}
+```
+
+**Response 200 — investment account**
+```json
+{
+  "balance_history": [
+    { "date": "2026-04-06", "balance_paise": 5000000, "cash_paise": 5000000, "holdings_paise": 32895400, "total_paise": 37895400 },
+    { "date": "2026-04-07", "balance_paise": 5000000, "cash_paise": 5000000, "holdings_paise": 32895400, "total_paise": 37895400 }
+  ]
+}
+```
+
+**Errors**: `UNAUTHORIZED`, `NOT_FOUND`
+
+---
+
 ### GET /api/v1/accounts
 List active accounts owned by the authenticated user, grouped for the balance sheet.
 
@@ -312,6 +365,8 @@ Transaction types:
   "date": "2026-05-01",
   "description": "Groceries",
   "amount_paise": 300000,
+  "account_currency": "INR",
+  "inr_amount_paise": 300000,
   "category_id": "uuid",
   "category_name": "Groceries",
   "notes": null,
@@ -356,6 +411,8 @@ Return count, income, expense, and net totals using the same filters as the list
 
 ### POST /api/v1/transactions
 Create a transaction. All referenced accounts/categories must belong to the authenticated user. Income, expense, and dividend require a matching category unless an income/expense transaction uses splits. Splits must total exactly `amount_paise`.
+
+For transactions on foreign-currency accounts, `fx_rate` (INR per 1 unit of account currency) may be supplied to record the exchange rate at transaction time. `inr_amount_paise` in responses is always the INR-equivalent value computed as `amount_paise × fx_rate` (or `amount_paise` for INR accounts). For `transfer` type, `fx_to_amount_paise` and `fx_fee_paise` are also accepted.
 
 **Body**
 ```json

@@ -20,6 +20,7 @@ export interface Account {
   opening_date: string
   balance_paise: number
   inr_value_paise: number
+  cash_balance_paise?: number
   color_hex: string
   is_active: boolean
   last_updated: string
@@ -27,6 +28,14 @@ export interface Account {
   side: AccountSide
   class_key: string
   class_label: string
+}
+
+export interface BalanceHistoryPoint {
+  date: string
+  balance_paise: number
+  cash_paise?: number
+  holdings_paise?: number
+  total_paise?: number
 }
 
 export interface AccountSummary {

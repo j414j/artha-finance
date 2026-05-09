@@ -160,6 +160,8 @@ pub struct TransactionView {
     pub fx_rate: Option<f64>,
     pub fx_to_amount_paise: Option<i64>,
     pub fx_fee_paise: i64,
+    pub account_currency: String,
+    pub inr_amount_paise: i64,
     pub investment_detail: Option<InvestmentDetailView>,
 }
 
@@ -169,6 +171,7 @@ pub struct TransactionSplitView {
     pub category_id: Option<String>,
     pub category_name: Option<String>,
     pub amount_paise: i64,
+    pub inr_amount_paise: i64,
     pub notes: Option<String>,
 }
 

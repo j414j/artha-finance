@@ -1,9 +1,13 @@
+use std::collections::BTreeMap;
+
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
-    routing::{get, patch},
+    routing::get,
     Json, Router,
 };
+use chrono::{Duration, Utc};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use uuid::Uuid;
@@ -28,7 +32,235 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_accounts).post(create_account))
         .route("/summary", get(account_summary))
-        .route("/:id", patch(update_account).delete(archive_account))
+        .route(
+            "/:id",
+            get(get_account).patch(update_account).delete(archive_account),
+        )
+        .route("/:id/balance-history", get(account_balance_history))
+}
+
+async fn get_account(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(id): Path<String>,
+) -> Result<Json<Value>> {
+    let account = fetch_active_account(&state.db, &id, &user.id).await?;
+    let fx_rates = FxRateMap::latest_for_user(&state.db, &user.id).await?;
+
+    let raw_cash_paise = account.balance_paise;
+    let cash_inr_paise = fx_rates
+        .convert_to_inr_paise(&account.currency, raw_cash_paise)
+        .unwrap_or(account.inr_value_paise);
+
+    let mut view = serde_json::to_value(AccountView::from(account.clone()))
+        .unwrap_or_else(|_| json!({}));
+    view["inr_value_paise"] = json!(cash_inr_paise);
+
+    if is_investment_account(&account.account_type) {
+        let holdings = compute_holdings(&state.db, &user.id, Some(&id)).await?;
+        let mut holdings_paise: i64 = 0;
+        let mut holdings_inr_paise: i64 = 0;
+        for h in &holdings {
+            if let Some(v) =
+                convert_holding_to_account_currency(&fx_rates, h, &account.currency)
+            {
+                holdings_paise += v;
+            }
+            if let Some(v) = h.current_value_inr_paise.or(h.invested_value_inr_paise) {
+                holdings_inr_paise += v;
+            }
+        }
+        view["balance_paise"] = json!(raw_cash_paise + holdings_paise);
+        view["inr_value_paise"] = json!(cash_inr_paise + holdings_inr_paise);
+        view["cash_balance_paise"] = json!(raw_cash_paise);
+    }
+
+    Ok(Json(json!({ "account": view })))
+}
+
+#[derive(Deserialize)]
+struct BalanceHistoryQuery {
+    days: Option<u32>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct BalanceTxRow {
+    date: String,
+    tx_type: String,
+    amount_paise: i64,
+    fx_to_amount_paise: Option<i64>,
+    role: String,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct InvTxHistoryRow {
+    date: String,
+    instrument_id: String,
+    quantity: f64,
+    tx_type: String,
+}
+
+async fn account_balance_history(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(id): Path<String>,
+    Query(query): Query<BalanceHistoryQuery>,
+) -> Result<Json<Value>> {
+    let account = fetch_active_account(&state.db, &id, &user.id).await?;
+    let days = query.days.unwrap_or(30).clamp(1, 365);
+
+    let today = Utc::now().date_naive();
+    let window_start = today - Duration::days(days as i64 - 1);
+
+    let tx_rows: Vec<BalanceTxRow> = sqlx::query_as(
+        "SELECT
+            t.date,
+            t.type        AS tx_type,
+            t.amount_paise,
+            t.fx_to_amount_paise,
+            CASE WHEN t.account_id = ? THEN 'primary' ELSE 'dest' END AS role
+         FROM transactions t
+         WHERE t.deleted_at IS NULL
+           AND t.user_id = ?
+           AND (t.account_id = ? OR t.transfer_account_id = ?)
+         ORDER BY t.date ASC, t.created_at ASC",
+    )
+    .bind(&id)
+    .bind(&user.id)
+    .bind(&id)
+    .bind(&id)
+    .fetch_all(&state.db)
+    .await?;
+
+    let mut running_balance = account.opening_balance_paise;
+    let mut daily_end: BTreeMap<String, i64> = BTreeMap::new();
+
+    for row in &tx_rows {
+        let delta = balance_tx_delta(row, &account.account_type, running_balance);
+        running_balance += delta;
+        daily_end.insert(row.date.clone(), running_balance);
+    }
+
+    let window_start_str = window_start.format("%Y-%m-%d").to_string();
+    let seed = daily_end
+        .range(..window_start_str)
+        .last()
+        .map(|(_, &b)| b)
+        .unwrap_or(account.opening_balance_paise);
+
+    let mut prev = seed;
+    let mut series: Vec<Value> = Vec::with_capacity(days as usize);
+    for i in 0..days {
+        let date = window_start + Duration::days(i as i64);
+        let date_str = date.format("%Y-%m-%d").to_string();
+        let balance = daily_end.get(&date_str).copied().unwrap_or(prev);
+        prev = balance;
+        series.push(json!({ "date": date_str, "balance_paise": balance }));
+    }
+
+    // For investment accounts, augment each point with cash/holdings/total breakdown
+    if is_investment_account(&account.account_type) {
+        let holdings = compute_holdings(&state.db, &user.id, Some(&id)).await?;
+
+        // Build current price map per instrument (latest snapshot, fallback to avg buy price)
+        let price_map: BTreeMap<String, i64> = holdings
+            .iter()
+            .map(|h| {
+                let price = h.latest_price_paise.unwrap_or_else(|| {
+                    if h.quantity_held > 0.0 {
+                        (h.invested_value_paise as f64 / h.quantity_held).round() as i64
+                    } else {
+                        0
+                    }
+                });
+                (h.instrument_id.clone(), price)
+            })
+            .collect();
+
+        // Fetch all investment buy/sell transactions for this account (all time)
+        let inv_txs: Vec<InvTxHistoryRow> = sqlx::query_as(
+            "SELECT t.date, itd.instrument_id, itd.quantity, t.type AS tx_type
+             FROM investment_transaction_details itd
+             JOIN transactions t ON t.id = itd.transaction_id
+             WHERE t.user_id = ? AND t.account_id = ? AND t.deleted_at IS NULL
+               AND t.type IN ('investment_buy', 'investment_sell')
+             ORDER BY t.date ASC, t.created_at ASC",
+        )
+        .bind(&user.id)
+        .bind(&id)
+        .fetch_all(&state.db)
+        .await?;
+
+        // Build cumulative holdings value timeline: date -> total holdings value at end of that date
+        let mut running_qty: BTreeMap<String, f64> = BTreeMap::new();
+        let mut daily_holdings_end: BTreeMap<String, i64> = BTreeMap::new();
+        for tx in &inv_txs {
+            let delta = if tx.tx_type == "investment_buy" {
+                tx.quantity
+            } else {
+                -tx.quantity
+            };
+            *running_qty.entry(tx.instrument_id.clone()).or_insert(0.0) += delta;
+            let total: i64 = running_qty
+                .iter()
+                .map(|(iid, &qty)| {
+                    let price = price_map.get(iid).copied().unwrap_or(0);
+                    (qty.max(0.0) * price as f64).round() as i64
+                })
+                .sum();
+            daily_holdings_end.insert(tx.date.clone(), total);
+        }
+
+        // Seed: last known holdings value before window start
+        let inv_window_start_str = window_start.format("%Y-%m-%d").to_string();
+        let seed_holdings = daily_holdings_end
+            .range(..inv_window_start_str)
+            .last()
+            .map(|(_, &v)| v)
+            .unwrap_or(0);
+
+        let mut prev_h = seed_holdings;
+        for point in &mut series {
+            let date_str = point["date"].as_str().unwrap_or("").to_string();
+            let h = daily_holdings_end
+                .get(&date_str)
+                .copied()
+                .unwrap_or(prev_h);
+            prev_h = h;
+            let cash = point["balance_paise"].as_i64().unwrap_or(0);
+            point["cash_paise"] = json!(cash);
+            point["holdings_paise"] = json!(h);
+            point["total_paise"] = json!(cash + h);
+        }
+    }
+
+    Ok(Json(json!({ "balance_history": series })))
+}
+
+fn balance_tx_delta(row: &BalanceTxRow, account_type: &str, current_balance: i64) -> i64 {
+    if row.role == "primary" {
+        match row.tx_type.as_str() {
+            "income" | "dividend" | "investment_sell" => row.amount_paise,
+            "expense" => {
+                if account_type == "credit_card" {
+                    row.amount_paise
+                } else {
+                    -row.amount_paise
+                }
+            }
+            "transfer" | "investment_buy" | "credit_card_payment" | "loan_repayment" => {
+                -row.amount_paise
+            }
+            "valuation_update" => row.amount_paise - current_balance,
+            _ => 0,
+        }
+    } else {
+        match row.tx_type.as_str() {
+            "transfer" => row.fx_to_amount_paise.unwrap_or(row.amount_paise),
+            "credit_card_payment" | "loan_repayment" => -row.amount_paise,
+            _ => 0,
+        }
+    }
 }
 
 async fn list_accounts(

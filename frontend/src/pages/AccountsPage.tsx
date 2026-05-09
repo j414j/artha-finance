@@ -7,6 +7,7 @@ import {
   updateAccount,
 } from "../api/accounts";
 import { ApiError } from "../api/client";
+import AccountDrilldown from "../components/AccountDrilldown";
 import Button from "../components/Button";
 import Input from "../components/Input";
 import ProgressBar from "../components/ProgressBar";
@@ -93,6 +94,7 @@ export default function AccountsPage() {
   const [saving, setSaving] = useState(false);
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
+  const [drilldownAccount, setDrilldownAccount] = useState<Account | null>(null);
 
   const loadAccounts = useCallback(async () => {
     setLoading(true);
@@ -239,6 +241,7 @@ export default function AccountsPage() {
                 onToggleMenu={setActionMenuId}
                 onEdit={openEditModal}
                 onArchive={handleArchive}
+                onSelect={setDrilldownAccount}
               />
               <AccountSideSection
                 label="Liabilities"
@@ -250,6 +253,7 @@ export default function AccountsPage() {
                 onToggleMenu={setActionMenuId}
                 onEdit={openEditModal}
                 onArchive={handleArchive}
+                onSelect={setDrilldownAccount}
               />
             </>
           )}
@@ -271,6 +275,13 @@ export default function AccountsPage() {
           onClose={closeModal}
           onSubmit={handleSubmit}
           onChange={setForm}
+        />
+      )}
+
+      {drilldownAccount && (
+        <AccountDrilldown
+          account={drilldownAccount}
+          onClose={() => setDrilldownAccount(null)}
         />
       )}
     </div>
@@ -339,6 +350,7 @@ function AccountSideSection({
   onToggleMenu,
   onEdit,
   onArchive,
+  onSelect,
 }: {
   label: string;
   color: string;
@@ -349,6 +361,7 @@ function AccountSideSection({
   onToggleMenu: (id: string | null) => void;
   onEdit: (account: Account) => void;
   onArchive: (account: Account) => void;
+  onSelect: (account: Account) => void;
 }) {
   if (groups.length === 0) return null;
 
@@ -366,6 +379,7 @@ function AccountSideSection({
             onToggleMenu={onToggleMenu}
             onEdit={onEdit}
             onArchive={onArchive}
+            onSelect={onSelect}
           />
         </div>
       ))}
@@ -381,6 +395,7 @@ function AccountTable({
   onToggleMenu,
   onEdit,
   onArchive,
+  onSelect,
 }: {
   group: AccountGroup;
   showHeader: boolean;
@@ -389,6 +404,7 @@ function AccountTable({
   onToggleMenu: (id: string | null) => void;
   onEdit: (account: Account) => void;
   onArchive: (account: Account) => void;
+  onSelect: (account: Account) => void;
 }) {
   return (
     <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -406,7 +422,11 @@ function AccountTable({
       )}
       <tbody>
         {group.accounts.map((account) => (
-          <tr key={account.id}>
+          <tr
+            key={account.id}
+            style={{ cursor: "pointer" }}
+            onClick={() => onSelect(account)}
+          >
             <Td>
               <div
                 style={{
@@ -458,11 +478,10 @@ function AccountTable({
                 <button
                   type="button"
                   title="Account actions"
-                  onClick={() =>
-                    onToggleMenu(
-                      actionMenuId === account.id ? null : account.id,
-                    )
-                  }
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleMenu(actionMenuId === account.id ? null : account.id);
+                  }}
                   style={actionButtonStyle}
                   disabled={archivingId === account.id}
                 >
@@ -473,14 +492,14 @@ function AccountTable({
                     <button
                       type="button"
                       style={menuItemStyle}
-                      onClick={() => onEdit(account)}
+                      onClick={(e) => { e.stopPropagation(); onEdit(account); }}
                     >
                       Edit
                     </button>
                     <button
                       type="button"
                       style={{ ...menuItemStyle, color: "var(--red)" }}
-                      onClick={() => onArchive(account)}
+                      onClick={(e) => { e.stopPropagation(); onArchive(account); }}
                     >
                       Archive
                     </button>

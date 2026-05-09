@@ -22,6 +22,7 @@ export interface TransactionSplit {
   category_id: string | null;
   category_name: string | null;
   amount_paise: number;
+  inr_amount_paise: number;
   notes: string | null;
 }
 
@@ -45,6 +46,8 @@ export interface Transaction {
   fx_rate: number | null;
   fx_to_amount_paise: number | null;
   fx_fee_paise: number;
+  account_currency: string;
+  inr_amount_paise: number;
   investment_detail: {
     instrument_id: string;
     instrument_name: string;

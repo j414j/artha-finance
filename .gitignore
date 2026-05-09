@@ -25,3 +25,4 @@ graphify-out
 *.tar.gz
 
 dist
+.claude

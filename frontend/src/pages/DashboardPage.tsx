@@ -764,7 +764,7 @@ export default function DashboardPage() {
                           whiteSpace: 'nowrap',
                         }}
                       >
-                        {prefix}{formatMoney(tx.amount_paise)}
+                        {prefix}{formatMoney(tx.inr_amount_paise)}
                       </td>
                     </tr>
                   )

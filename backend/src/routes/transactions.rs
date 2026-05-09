@@ -694,6 +694,7 @@ struct TransactionJoinedRow {
     fx_rate: Option<f64>,
     fx_to_amount_paise: Option<i64>,
     fx_fee_paise: i64,
+    account_currency: String,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -732,12 +733,20 @@ async fn validate_transaction_input(
         validate_transfer_account_id(parts.transfer_account_id, &transaction_type)?;
     let recurrence_frequency = validate_recurrence(parts.is_recurring, parts.recurrence_frequency)?;
 
-    let (fx_rate, fx_to_amount_paise, fx_fee_paise) = validate_fx_fields(
+    let (mut fx_rate, fx_to_amount_paise, fx_fee_paise) = validate_fx_fields(
         parts.fx_rate,
         parts.fx_to_amount_paise,
         parts.fx_fee_paise,
         &transaction_type,
     )?;
+
+    let account_id = normalize_required_id(parts.account_id, "account_id")?;
+
+    // Auto-lookup fx_rate for non-transfer transactions on foreign-currency accounts
+    // when no rate was explicitly provided.
+    if fx_rate.is_none() && transaction_type != "transfer" {
+        fx_rate = resolve_fx_rate(pool, user_id, &account_id, &date).await?;
+    }
 
     let investment_detail = validate_investment_detail(
         pool,
@@ -751,7 +760,7 @@ async fn validate_transaction_input(
     .await?;
 
     Ok(ValidatedTransactionInput {
-        account_id: normalize_required_id(parts.account_id, "account_id")?,
+        account_id,
         transfer_account_id,
         transaction_type,
         date,
@@ -783,14 +792,24 @@ fn validate_fx_fields(
         ));
     }
 
-    let has_fx = fx_rate.is_some() || fx_to_amount_paise.is_some() || fee != 0;
-
-    if has_fx && transaction_type != "transfer" {
-        return Err(AppError::BadRequest(
-            "FX fields are only allowed for transfer transactions".into(),
-        ));
+    if transaction_type != "transfer" {
+        // For non-transfers: only fx_rate is allowed (records INR rate at transaction time)
+        if fx_to_amount_paise.is_some() || fee != 0 {
+            return Err(AppError::BadRequest(
+                "fx_to_amount_paise and fx_fee_paise are only allowed for transfer transactions"
+                    .into(),
+            ));
+        }
+        if let Some(rate) = fx_rate {
+            if rate <= 0.0 {
+                return Err(AppError::BadRequest("fx_rate must be positive".into()));
+            }
+        }
+        return Ok((fx_rate, None, 0));
     }
 
+    // transfer: existing logic
+    let has_fx = fx_rate.is_some() || fx_to_amount_paise.is_some() || fee != 0;
     if has_fx {
         let rate = fx_rate.ok_or_else(|| {
             AppError::BadRequest("fx_rate is required when fx_to_amount_paise is set".into())
@@ -810,6 +829,43 @@ fn validate_fx_fields(
     } else {
         Ok((None, None, fee))
     }
+}
+
+/// Look up the most recent fx_rate on or before `date` for the account's currency → INR.
+/// Returns None if the account is INR or no rate is found.
+async fn resolve_fx_rate(
+    pool: &SqlitePool,
+    user_id: &str,
+    account_id: &str,
+    date: &str,
+) -> Result<Option<f64>> {
+    let row: Option<(String,)> = sqlx::query_as(
+        "SELECT currency FROM accounts WHERE id = ? AND user_id = ?",
+    )
+    .bind(account_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+
+    let currency = match row {
+        Some((c,)) if c != "INR" => c,
+        _ => return Ok(None),
+    };
+
+    let rate_row: Option<(f64,)> = sqlx::query_as(
+        "SELECT rate FROM fx_rates
+         WHERE user_id = ? AND from_currency = ? AND to_currency = 'INR'
+           AND date <= ?
+         ORDER BY date DESC
+         LIMIT 1",
+    )
+    .bind(user_id)
+    .bind(&currency)
+    .bind(date)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(rate_row.map(|(r,)| r))
 }
 
 async fn validate_investment_detail(
@@ -1351,9 +1407,18 @@ async fn fetch_transaction_summary(
 ) -> Result<TransactionSummary> {
     let mut builder = QueryBuilder::<Sqlite>::new(
         "SELECT COUNT(*) AS count,
-                COALESCE(SUM(CASE WHEN t.type IN ('income', 'dividend') THEN t.amount_paise ELSE 0 END), 0) AS total_income_paise,
-                COALESCE(SUM(CASE WHEN t.type = 'expense' THEN t.amount_paise ELSE 0 END), 0) AS total_expense_paise
-         FROM transactions t",
+                COALESCE(SUM(CASE WHEN t.type IN ('income', 'dividend') THEN
+                    CASE WHEN a.currency = 'INR' THEN t.amount_paise
+                         WHEN t.fx_rate IS NOT NULL THEN CAST(ROUND(CAST(t.amount_paise AS REAL) * t.fx_rate) AS INTEGER)
+                         ELSE t.amount_paise END
+                ELSE 0 END), 0) AS total_income_paise,
+                COALESCE(SUM(CASE WHEN t.type = 'expense' THEN
+                    CASE WHEN a.currency = 'INR' THEN t.amount_paise
+                         WHEN t.fx_rate IS NOT NULL THEN CAST(ROUND(CAST(t.amount_paise AS REAL) * t.fx_rate) AS INTEGER)
+                         ELSE t.amount_paise END
+                ELSE 0 END), 0) AS total_expense_paise
+         FROM transactions t
+         JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id",
     );
     append_transaction_filters(&mut builder, user_id, filters, false);
 
@@ -1412,11 +1477,29 @@ async fn fetch_transaction_view_in_tx(
     Ok(view)
 }
 
+fn effective_inr(amount_paise: i64, account_currency: &str, fx_rate: Option<f64>) -> i64 {
+    if account_currency == "INR" {
+        amount_paise
+    } else if let Some(rate) = fx_rate {
+        (amount_paise as f64 * rate).round() as i64
+    } else {
+        amount_paise // fallback: no rate recorded
+    }
+}
+
 fn row_to_view(
     row: TransactionJoinedRow,
     tags: Vec<String>,
     splits: Vec<TransactionSplitView>,
 ) -> TransactionView {
+    let inr_amount_paise = effective_inr(row.amount_paise, &row.account_currency, row.fx_rate);
+    let splits = splits
+        .into_iter()
+        .map(|mut s| {
+            s.inr_amount_paise = effective_inr(s.amount_paise, &row.account_currency, row.fx_rate);
+            s
+        })
+        .collect();
     TransactionView {
         id: row.id,
         account_id: row.account_id,
@@ -1439,6 +1522,8 @@ fn row_to_view(
         fx_rate: row.fx_rate,
         fx_to_amount_paise: row.fx_to_amount_paise,
         fx_fee_paise: row.fx_fee_paise,
+        account_currency: row.account_currency,
+        inr_amount_paise,
         investment_detail: None, // hydrated separately
     }
 }
@@ -1463,7 +1548,8 @@ fn transaction_select_sql() -> &'static str {
             t.updated_at,
             t.fx_rate,
             t.fx_to_amount_paise,
-            t.fx_fee_paise
+            t.fx_fee_paise,
+            a.currency AS account_currency
      FROM transactions t
      JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
      LEFT JOIN accounts ta ON ta.id = t.transfer_account_id AND ta.user_id = t.user_id
@@ -2019,6 +2105,7 @@ fn split_row_to_view(row: TransactionSplitJoinedRow) -> TransactionSplitView {
         category_id: row.category_id,
         category_name: row.category_name,
         amount_paise: row.amount_paise,
+        inr_amount_paise: row.amount_paise, // will be overridden in row_to_view with fx
         notes: row.notes,
     }
 }

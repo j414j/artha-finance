@@ -702,16 +702,21 @@ async fn fetch_top_level_spend(
     end_exclusive: &str,
 ) -> Result<Vec<SpendRow>> {
     Ok(sqlx::query_as::<_, SpendRow>(
-        "SELECT category_id,
-                COALESCE(SUM(amount_paise), 0) AS amount_paise
-         FROM transactions
-         WHERE user_id = ?
-           AND deleted_at IS NULL
-           AND type = 'expense'
-           AND category_id IS NOT NULL
-           AND date >= ?
-           AND date < ?
-         GROUP BY category_id",
+        "SELECT t.category_id,
+                COALESCE(SUM(
+                    CASE WHEN a.currency = 'INR' THEN t.amount_paise
+                         WHEN t.fx_rate IS NOT NULL THEN CAST(ROUND(CAST(t.amount_paise AS REAL) * t.fx_rate) AS INTEGER)
+                         ELSE t.amount_paise END
+                ), 0) AS amount_paise
+         FROM transactions t
+         JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
+         WHERE t.user_id = ?
+           AND t.deleted_at IS NULL
+           AND t.type = 'expense'
+           AND t.category_id IS NOT NULL
+           AND t.date >= ?
+           AND t.date < ?
+         GROUP BY t.category_id",
     )
     .bind(user_id)
     .bind(start)
@@ -728,11 +733,14 @@ async fn fetch_split_spend(
 ) -> Result<Vec<SpendRow>> {
     Ok(sqlx::query_as::<_, SpendRow>(
         "SELECT s.category_id,
-                COALESCE(SUM(s.amount_paise), 0) AS amount_paise
+                COALESCE(SUM(
+                    CASE WHEN a.currency = 'INR' THEN s.amount_paise
+                         WHEN t.fx_rate IS NOT NULL THEN CAST(ROUND(CAST(s.amount_paise AS REAL) * t.fx_rate) AS INTEGER)
+                         ELSE s.amount_paise END
+                ), 0) AS amount_paise
          FROM transaction_splits s
-         JOIN transactions t
-           ON t.id = s.transaction_id
-          AND t.user_id = s.user_id
+         JOIN transactions t ON t.id = s.transaction_id AND t.user_id = s.user_id
+         JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
          WHERE s.user_id = ?
            AND t.deleted_at IS NULL
            AND t.type = 'expense'
@@ -756,13 +764,22 @@ async fn fetch_income_expense(
     let (start, end_exclusive, _) = month_bounds(year, month)?;
     let row = sqlx::query_as::<_, IncomeExpenseRow>(
         "SELECT
-             COALESCE(SUM(CASE WHEN type IN ('income', 'dividend') THEN amount_paise ELSE 0 END), 0) AS income_paise,
-             COALESCE(SUM(CASE WHEN type = 'expense' THEN amount_paise ELSE 0 END), 0) AS expense_paise
-         FROM transactions
-         WHERE user_id = ?
-           AND deleted_at IS NULL
-           AND date >= ?
-           AND date < ?",
+             COALESCE(SUM(CASE WHEN t.type IN ('income', 'dividend') THEN
+                 CASE WHEN a.currency = 'INR' THEN t.amount_paise
+                      WHEN t.fx_rate IS NOT NULL THEN CAST(ROUND(CAST(t.amount_paise AS REAL) * t.fx_rate) AS INTEGER)
+                      ELSE t.amount_paise END
+             ELSE 0 END), 0) AS income_paise,
+             COALESCE(SUM(CASE WHEN t.type = 'expense' THEN
+                 CASE WHEN a.currency = 'INR' THEN t.amount_paise
+                      WHEN t.fx_rate IS NOT NULL THEN CAST(ROUND(CAST(t.amount_paise AS REAL) * t.fx_rate) AS INTEGER)
+                      ELSE t.amount_paise END
+             ELSE 0 END), 0) AS expense_paise
+         FROM transactions t
+         JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
+         WHERE t.user_id = ?
+           AND t.deleted_at IS NULL
+           AND t.date >= ?
+           AND t.date < ?",
     )
     .bind(user_id)
     .bind(start)

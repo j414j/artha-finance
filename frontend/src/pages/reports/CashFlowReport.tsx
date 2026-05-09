@@ -170,21 +170,21 @@ function aggregateFlowData(txns: Transaction[], catMap: Map<string, CatInfo>): F
   for (const t of txns) {
     if (t.type === 'income') {
       const k = t.category_name ?? t.description
-      incomeMap.set(k, (incomeMap.get(k) ?? 0) + t.amount_paise)
+      incomeMap.set(k, (incomeMap.get(k) ?? 0) + t.inr_amount_paise)
     } else if (t.type === 'dividend') {
-      incomeMap.set('Dividends', (incomeMap.get('Dividends') ?? 0) + t.amount_paise)
+      incomeMap.set('Dividends', (incomeMap.get('Dividends') ?? 0) + t.inr_amount_paise)
     } else if (t.type === 'expense') {
       const { root, child } = getRootAndChild(t.category_id, t.category_name ?? 'Uncategorized', catMap)
       const existing = expTopMap.get(root) ?? { amount: 0, children: new Map() }
-      existing.amount += t.amount_paise
+      existing.amount += t.inr_amount_paise
       if (child && child !== root) {
-        existing.children.set(child, (existing.children.get(child) ?? 0) + t.amount_paise)
+        existing.children.set(child, (existing.children.get(child) ?? 0) + t.inr_amount_paise)
       }
       expTopMap.set(root, existing)
     } else if (t.type === 'investment_buy') {
-      investments += t.amount_paise
+      investments += t.inr_amount_paise
     } else if (t.type === 'loan_repayment') {
-      loans += t.amount_paise
+      loans += t.inr_amount_paise
     }
   }
 
@@ -224,10 +224,10 @@ function aggregateMonthly(txns: Transaction[]): { monthly: MonthlyPoint[]; cumul
   for (const t of txns) {
     const key = t.date.slice(0, 7) // YYYY-MM
     const e = map.get(key) ?? { income: 0, expenses: 0, investments: 0, loans: 0 }
-    if (t.type === 'income' || t.type === 'dividend') e.income += t.amount_paise
-    else if (t.type === 'expense') e.expenses += t.amount_paise
-    else if (t.type === 'investment_buy') e.investments += t.amount_paise
-    else if (t.type === 'loan_repayment') e.loans += t.amount_paise
+    if (t.type === 'income' || t.type === 'dividend') e.income += t.inr_amount_paise
+    else if (t.type === 'expense') e.expenses += t.inr_amount_paise
+    else if (t.type === 'investment_buy') e.investments += t.inr_amount_paise
+    else if (t.type === 'loan_repayment') e.loans += t.inr_amount_paise
     map.set(key, e)
   }
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
