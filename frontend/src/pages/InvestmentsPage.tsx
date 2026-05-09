@@ -4,6 +4,7 @@ import { ApiError } from '../api/client';
 import { createInstrument, createPriceSnapshot } from '../api/instruments';
 import { getHoldings, getHoldingsSummary } from '../api/investments';
 import Button from '../components/Button';
+import HoldingDrilldown from '../components/HoldingDrilldown';
 import Input from '../components/Input';
 import Select from '../components/Select';
 import type { InstrumentType } from '../types/instrument';
@@ -223,6 +224,9 @@ export default function InvestmentsPage() {
   const [priceForm, setPriceForm] = useState<PriceFormState>(blankPriceForm());
   const [priceFormError, setPriceFormError] = useState('');
   const [priceSaving, setPriceSaving] = useState(false);
+
+  // Drilldown panel
+  const [drilldownHolding, setDrilldownHolding] = useState<Holding | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -479,6 +483,7 @@ export default function InvestmentsPage() {
                           key={`${h.instrument_id}-${h.account_id}`}
                           holding={h}
                           onUpdatePrice={openPriceModal}
+                          onDrilldown={setDrilldownHolding}
                         />
                       )),
                     ];
@@ -539,6 +544,13 @@ export default function InvestmentsPage() {
           onChange={setPriceForm}
           onSubmit={handlePriceSubmit}
           onClose={closePriceModal}
+        />
+      )}
+
+      {drilldownHolding !== null && (
+        <HoldingDrilldown
+          holding={drilldownHolding}
+          onClose={() => setDrilldownHolding(null)}
         />
       )}
     </div>
@@ -645,9 +657,11 @@ function MetricCard({
 function HoldingRow({
   holding: h,
   onUpdatePrice,
+  onDrilldown,
 }: {
   holding: Holding;
   onUpdatePrice: (h: Holding) => void;
+  onDrilldown: (h: Holding) => void;
 }) {
   const [hovered, setHovered] = useState(false);
 
@@ -656,9 +670,11 @@ function HoldingRow({
       style={{
         borderBottom: '1px solid var(--border)',
         background: hovered ? 'var(--bg2)' : undefined,
+        cursor: 'pointer',
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onClick={() => onDrilldown(h)}
     >
       {/* Instrument */}
       <Td>
@@ -751,7 +767,7 @@ function HoldingRow({
         <button
           type="button"
           title="Update price"
-          onClick={() => onUpdatePrice(h)}
+          onClick={(e) => { e.stopPropagation(); onUpdatePrice(h); }}
           style={actionBtnStyle}
         >
           ₹

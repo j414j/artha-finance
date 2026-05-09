@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     routing::get,
     Json, Router,
 };
@@ -20,6 +20,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/holdings", get(list_holdings))
         .route("/holdings/summary", get(holdings_summary))
+        .route("/holdings/:instrument_id/drilldown", get(holding_drilldown))
 }
 
 // ---------------------------------------------------------------------------
@@ -516,4 +517,307 @@ async fn convert_to_inr_on_or_latest(
         return Ok(Some((amount_paise as f64 * rate).round() as i64));
     }
     Ok(latest_rates.convert_to_inr_paise(currency, amount_paise))
+}
+
+// ---------------------------------------------------------------------------
+// Drilldown
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct DrilldownQuery {
+    account_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ValueHistoryPoint {
+    date: String,
+    value_paise: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct BuyLot {
+    transaction_id: String,
+    date: String,
+    description: String,
+    quantity: f64,
+    price_per_unit_paise: i64,
+    fees_paise: i64,
+    invested_paise: i64,
+    current_value_paise: Option<i64>,
+    pnl_paise: Option<i64>,
+    pnl_pct: Option<f64>,
+    days_held: i64,
+    annualised_return_pct: Option<f64>,
+}
+
+#[derive(Debug, FromRow)]
+struct BuyTxRow {
+    transaction_id: String,
+    date: String,
+    description: String,
+    quantity: f64,
+    price_per_unit_paise: i64,
+    fees_paise: i64,
+}
+
+#[derive(Debug, FromRow)]
+struct SellQtyRow {
+    date: String,
+    quantity: f64,
+}
+
+#[derive(Debug, FromRow)]
+struct PriceHistoryRow {
+    date: String,
+    price_paise: i64,
+}
+
+/// GET /api/v1/investments/holdings/:instrument_id/drilldown
+async fn holding_drilldown(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(instrument_id): Path<String>,
+    Query(q): Query<DrilldownQuery>,
+) -> Result<Json<Value>> {
+    let pool = &state.db;
+    let account_id = q.account_id.as_deref();
+
+    // Fetch all buy transactions for this instrument (+ optional account filter)
+    let buy_rows: Vec<BuyTxRow> = if let Some(aid) = account_id {
+        sqlx::query_as::<_, BuyTxRow>(
+            "SELECT t.id AS transaction_id, t.date, t.description,
+                    itd.quantity, itd.price_per_unit_paise, itd.fees_paise
+             FROM investment_transaction_details itd
+             JOIN transactions t ON t.id = itd.transaction_id
+             WHERE t.user_id = ? AND itd.instrument_id = ? AND t.account_id = ?
+               AND t.type = 'investment_buy' AND t.deleted_at IS NULL
+             ORDER BY t.date ASC, t.created_at ASC",
+        )
+        .bind(&user.id)
+        .bind(&instrument_id)
+        .bind(aid)
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query_as::<_, BuyTxRow>(
+            "SELECT t.id AS transaction_id, t.date, t.description,
+                    itd.quantity, itd.price_per_unit_paise, itd.fees_paise
+             FROM investment_transaction_details itd
+             JOIN transactions t ON t.id = itd.transaction_id
+             WHERE t.user_id = ? AND itd.instrument_id = ?
+               AND t.type = 'investment_buy' AND t.deleted_at IS NULL
+             ORDER BY t.date ASC, t.created_at ASC",
+        )
+        .bind(&user.id)
+        .bind(&instrument_id)
+        .fetch_all(pool)
+        .await?
+    };
+
+    // Fetch sell quantities (date-ordered) to support running balance for history
+    let sell_rows: Vec<SellQtyRow> = if let Some(aid) = account_id {
+        sqlx::query_as::<_, SellQtyRow>(
+            "SELECT t.date, itd.quantity
+             FROM investment_transaction_details itd
+             JOIN transactions t ON t.id = itd.transaction_id
+             WHERE t.user_id = ? AND itd.instrument_id = ? AND t.account_id = ?
+               AND t.type = 'investment_sell' AND t.deleted_at IS NULL
+             ORDER BY t.date ASC, t.created_at ASC",
+        )
+        .bind(&user.id)
+        .bind(&instrument_id)
+        .bind(aid)
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query_as::<_, SellQtyRow>(
+            "SELECT t.date, itd.quantity
+             FROM investment_transaction_details itd
+             JOIN transactions t ON t.id = itd.transaction_id
+             WHERE t.user_id = ? AND itd.instrument_id = ?
+               AND t.type = 'investment_sell' AND t.deleted_at IS NULL
+             ORDER BY t.date ASC, t.created_at ASC",
+        )
+        .bind(&user.id)
+        .bind(&instrument_id)
+        .fetch_all(pool)
+        .await?
+    };
+
+    // Latest price snapshot
+    let latest_price: Option<PriceHistoryRow> = sqlx::query_as::<_, PriceHistoryRow>(
+        "SELECT date, price_paise FROM price_snapshots
+         WHERE user_id = ? AND instrument_id = ?
+         ORDER BY date DESC, created_at DESC LIMIT 1",
+    )
+    .bind(&user.id)
+    .bind(&instrument_id)
+    .fetch_optional(pool)
+    .await?;
+
+    // All price snapshots for history chart (ascending)
+    let price_history: Vec<PriceHistoryRow> = sqlx::query_as::<_, PriceHistoryRow>(
+        "SELECT date, price_paise FROM price_snapshots
+         WHERE user_id = ? AND instrument_id = ?
+         ORDER BY date ASC",
+    )
+    .bind(&user.id)
+    .bind(&instrument_id)
+    .fetch_all(pool)
+    .await?;
+
+    let today = chrono::Local::now().date_naive().to_string();
+    let effective_price = latest_price.as_ref().map(|p| p.price_paise);
+
+    // Build buy lots
+    let mut buy_lots: Vec<BuyLot> = Vec::with_capacity(buy_rows.len());
+    let mut xirr_flows: Vec<(f64, f64)> = Vec::new(); // (amount, year_fraction from earliest)
+
+    let earliest_date = buy_rows.first().map(|r| r.date.as_str()).unwrap_or(&today);
+
+    for row in &buy_rows {
+        let invested_paise = (row.quantity * row.price_per_unit_paise as f64).round() as i64
+            + row.fees_paise;
+
+        let current_value_paise = effective_price
+            .map(|p| (row.quantity * p as f64).round() as i64);
+
+        let pnl_paise = current_value_paise.map(|cv| cv - invested_paise);
+        let pnl_pct = pnl_paise.map(|pnl| {
+            if invested_paise != 0 {
+                pnl as f64 / invested_paise as f64 * 100.0
+            } else {
+                0.0
+            }
+        });
+
+        let days_held = days_between(&row.date, &today);
+
+        let annualised_return_pct = pnl_pct.map(|pct| {
+            if days_held <= 0 {
+                return pct;
+            }
+            let r = pct / 100.0;
+            ((1.0 + r).powf(365.0 / days_held as f64) - 1.0) * 100.0
+        });
+
+        // XIRR cash flow: outflow at buy date
+        let t = days_between(earliest_date, &row.date) as f64 / 365.0;
+        xirr_flows.push((-(invested_paise as f64), t));
+
+        buy_lots.push(BuyLot {
+            transaction_id: row.transaction_id.clone(),
+            date: row.date.clone(),
+            description: row.description.clone(),
+            quantity: row.quantity,
+            price_per_unit_paise: row.price_per_unit_paise,
+            fees_paise: row.fees_paise,
+            invested_paise,
+            current_value_paise,
+            pnl_paise,
+            pnl_pct,
+            days_held,
+            annualised_return_pct,
+        });
+    }
+
+    // XIRR: add terminal cash flow (current total value at today)
+    let xirr_pct = if !xirr_flows.is_empty() {
+        if let Some(price) = effective_price {
+            // Total quantity currently held
+            let total_bought: f64 = buy_rows.iter().map(|r| r.quantity).sum();
+            let total_sold: f64 = sell_rows.iter().map(|r| r.quantity).sum();
+            let qty_held = (total_bought - total_sold).max(0.0);
+            let terminal_value = (qty_held * price as f64).round() as f64;
+            let t_today = days_between(earliest_date, &today) as f64 / 365.0;
+            xirr_flows.push((terminal_value, t_today));
+            compute_xirr(&xirr_flows)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Value history: for each price snapshot, compute quantity held at that point
+    let mut value_history: Vec<ValueHistoryPoint> = Vec::new();
+    let mut buy_idx = 0usize;
+    let mut sell_idx = 0usize;
+    let mut running_qty: f64 = 0.0;
+
+    for price_pt in &price_history {
+        // Advance all buy/sell transactions with date <= price_pt.date
+        while buy_idx < buy_rows.len() && buy_rows[buy_idx].date.as_str() <= price_pt.date.as_str() {
+            running_qty += buy_rows[buy_idx].quantity;
+            buy_idx += 1;
+        }
+        while sell_idx < sell_rows.len() && sell_rows[sell_idx].date.as_str() <= price_pt.date.as_str() {
+            running_qty -= sell_rows[sell_idx].quantity;
+            sell_idx += 1;
+        }
+        if running_qty > 0.0 {
+            let value_paise = (running_qty * price_pt.price_paise as f64).round() as i64;
+            value_history.push(ValueHistoryPoint {
+                date: price_pt.date.clone(),
+                value_paise,
+            });
+        }
+    }
+
+    Ok(Json(json!({
+        "xirr_pct": xirr_pct.map(|r| (r * 10000.0).round() / 100.0),  // round to 2dp
+        "value_history": value_history,
+        "buy_lots": buy_lots,
+    })))
+}
+
+fn days_between(from: &str, to: &str) -> i64 {
+    use chrono::NaiveDate;
+    let a = NaiveDate::parse_from_str(from, "%Y-%m-%d").unwrap_or_default();
+    let b = NaiveDate::parse_from_str(to, "%Y-%m-%d").unwrap_or_default();
+    (b - a).num_days()
+}
+
+fn compute_xirr(flows: &[(f64, f64)]) -> Option<f64> {
+    // Newton-Raphson: find r such that sum(cf / (1+r)^t) = 0
+    let has_negative = flows.iter().any(|(cf, _)| *cf < 0.0);
+    let has_positive = flows.iter().any(|(cf, _)| *cf > 0.0);
+    if !has_negative || !has_positive {
+        return None;
+    }
+
+    let mut rate = 0.1_f64;
+
+    for _ in 0..200 {
+        let f: f64 = flows
+            .iter()
+            .map(|(cf, t)| cf / (1.0 + rate).powf(*t))
+            .sum();
+        let df: f64 = flows
+            .iter()
+            .map(|(cf, t)| -t * cf / (1.0 + rate).powf(*t + 1.0))
+            .sum();
+
+        if df.abs() < 1e-12 {
+            break;
+        }
+
+        let next = rate - f / df;
+
+        if (next - rate).abs() < 1e-8 {
+            return Some(next);
+        }
+
+        if next < -0.9999 || !next.is_finite() {
+            break;
+        }
+
+        rate = next;
+    }
+
+    if rate.is_finite() && rate > -0.9999 {
+        Some(rate)
+    } else {
+        None
+    }
 }

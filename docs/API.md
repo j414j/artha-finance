@@ -1241,6 +1241,46 @@ List all holdings for the authenticated user.
 
 ---
 
+#### GET /api/v1/investments/holdings/:instrument_id/drilldown
+
+Return per-lot analytics and value history for a single holding.
+
+**Query params**: `account_id` (optional — scope to a single account when the instrument is held in multiple accounts)
+
+**Response 200**
+```json
+{
+  "xirr_pct": 18.45,
+  "value_history": [
+    { "date": "2026-04-01", "value_paise": 1000000 }
+  ],
+  "buy_lots": [
+    {
+      "transaction_id": "uuid",
+      "date": "2026-04-01",
+      "description": "Buy RELIANCE",
+      "quantity": 10.0,
+      "price_per_unit_paise": 100000,
+      "fees_paise": 0,
+      "invested_paise": 1000000,
+      "current_value_paise": 1200000,
+      "pnl_paise": 200000,
+      "pnl_pct": 20.0,
+      "days_held": 60,
+      "annualised_return_pct": 121.55
+    }
+  ]
+}
+```
+
+- `xirr_pct`: annualised XIRR across all buy lots vs current position value; `null` when no price snapshot exists.
+- `value_history`: one point per price snapshot date showing total position value (qty × price at that date). Empty when no price snapshots exist.
+- `buy_lots`: one row per `investment_buy` transaction; current stats are computed against the latest price snapshot.
+
+**Errors**: `UNAUTHORIZED`
+
+---
+
 #### GET /api/v1/investments/holdings/summary
 
 Aggregate summary across all holdings.

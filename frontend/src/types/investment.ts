@@ -1,3 +1,29 @@
+export interface BuyLot {
+  transaction_id: string;
+  date: string;
+  description: string;
+  quantity: number;
+  price_per_unit_paise: number;
+  fees_paise: number;
+  invested_paise: number;
+  current_value_paise: number | null;
+  pnl_paise: number | null;
+  pnl_pct: number | null;
+  days_held: number;
+  annualised_return_pct: number | null;
+}
+
+export interface ValueHistoryPoint {
+  date: string;
+  value_paise: number;
+}
+
+export interface HoldingDrilldown {
+  xirr_pct: number | null;
+  value_history: ValueHistoryPoint[];
+  buy_lots: BuyLot[];
+}
+
 export interface Holding {
   instrument_id: string;
   instrument_name: string;
