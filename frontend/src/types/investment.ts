@@ -57,3 +57,25 @@ export interface HoldingsSummary {
   total_realised_pnl_paise: number;
   holdings_count: number;
 }
+
+export interface PortfolioHistoryPoint {
+  date: string;
+  value_paise: number;
+  invested_paise: number;
+}
+
+export interface HoldingXirr {
+  instrument_id: string;
+  account_id: string;
+  xirr_pct: number | null;
+}
+
+export interface XirrSummary {
+  portfolio_xirr_pct: number | null;
+  holdings: HoldingXirr[];
+}
+
+export interface DividendMonthData {
+  month: string;
+  amount_paise: number;
+}

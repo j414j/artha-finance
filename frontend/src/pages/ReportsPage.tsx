@@ -58,11 +58,11 @@ const REPORT_CARDS: ReportCard[] = [
     icon: '△',
     title: 'Investment Reports',
     bullets: [
-      'Portfolio composition & performance chart',
-      'Realised P&L and dividend income report',
-      'XIRR summary per holding',
+      'Portfolio growth chart & asset allocation analysis',
+      'Performance ranking (P&L % and XIRR per holding)',
+      'Dividend income history & price data quality',
     ],
-    available: false,
+    available: true,
   },
   {
     route: '/reports/goals',

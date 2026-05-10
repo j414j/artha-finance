@@ -1438,3 +1438,68 @@ Holdings summary totals are returned in INR. Invested totals use historical buy-
 - `current_value_inr_paise`
 - `unrealised_pnl_inr_paise`
 - `realised_pnl_inr_paise`
+
+---
+
+### Portfolio History
+
+#### GET /api/v1/investments/portfolio-history
+
+Returns aggregate portfolio value and invested capital over time, computed from all price snapshots across all holdings.
+
+**Query params**: `account_id` (optional)
+
+**Response 200**
+```json
+{
+  "history": [
+    { "date": "2024-01-15", "value_paise": 1234567, "invested_paise": 1000000 }
+  ]
+}
+```
+
+Each point corresponds to a date on which at least one instrument has a price snapshot. `value_paise` is the sum of all holding values at that date (using the latest price on or before that date per instrument, converted to INR via latest FX rate). `invested_paise` is the running sum of all buy costs in INR up to that date.
+
+---
+
+### XIRR Summary
+
+#### GET /api/v1/investments/xirr-summary
+
+Returns XIRR per holding and a portfolio-level XIRR.
+
+**Query params**: `account_id` (optional)
+
+**Response 200**
+```json
+{
+  "portfolio_xirr_pct": 14.2,
+  "holdings": [
+    { "instrument_id": "uuid", "account_id": "uuid", "xirr_pct": 18.4 }
+  ]
+}
+```
+
+`portfolio_xirr_pct` is the annualised internal rate of return treating all buy outflows and sell inflows across the entire portfolio, with the current portfolio value as the terminal cash flow. `null` when there is insufficient data or no price information. Per-holding XIRR is `null` when no price snapshot exists for the instrument.
+
+Note: XIRR is computed in native currency amounts. For multi-currency portfolios, portfolio-level XIRR is an approximation (native amounts are summed without FX conversion).
+
+---
+
+### Dividend Income
+
+#### GET /api/v1/investments/dividend-income
+
+Returns dividend income aggregated by calendar month.
+
+**Response 200**
+```json
+{
+  "income": [
+    { "month": "2024-01", "amount_paise": 45000 },
+    { "month": "2024-03", "amount_paise": 62500 }
+  ]
+}
+```
+
+Sums all transactions with `type = 'dividend'` and groups them by the `YYYY-MM` prefix of the transaction date. Only includes months with at least one dividend transaction. Ordered chronologically.

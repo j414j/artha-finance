@@ -4,6 +4,7 @@ import { ApiError } from '../api/client';
 import { createInstrument, createPriceSnapshot } from '../api/instruments';
 import { getHoldings, getHoldingsSummary } from '../api/investments';
 import Button from '../components/Button';
+import AllocationDonut from '../components/AllocationDonut';
 import HoldingDrilldown from '../components/HoldingDrilldown';
 import Input from '../components/Input';
 import Select from '../components/Select';
@@ -14,6 +15,13 @@ import {
   formatMoney,
   parseMoneyInput,
 } from '../utils/format';
+import {
+  type DonutSegment,
+  TYPE_COLORS,
+  TYPE_LABELS,
+  allocationValue,
+  allocationSegmentsFor,
+} from '../utils/allocation';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -29,36 +37,6 @@ const INSTRUMENT_TYPES: Array<{ value: InstrumentType; label: string }> = [
   { value: 'other', label: 'Other' },
 ];
 
-const TYPE_LABELS: Record<string, string> = {
-  equity: 'Equity',
-  mf: 'Mutual Fund',
-  etf: 'ETF',
-  bond: 'Bond',
-  gold: 'Gold',
-  crypto: 'Crypto',
-  other: 'Other',
-};
-
-const TYPE_COLORS: Record<string, string> = {
-  equity: 'var(--blue)',
-  mf: 'var(--purple)',
-  etf: '#00B8D4',
-  bond: 'var(--accent)',
-  gold: '#FFD700',
-  crypto: 'var(--green)',
-  other: 'var(--text3)',
-};
-
-const ALLOCATION_PALETTE = [
-  'var(--blue)',
-  'var(--green)',
-  'var(--purple)',
-  'var(--accent)',
-  '#00B8D4',
-  '#FFD700',
-  'var(--red)',
-  'var(--text3)',
-];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -75,36 +53,8 @@ function pnlColor(value: number | null): string {
   return value >= 0 ? 'var(--green)' : 'var(--red)';
 }
 
-function allocationValue(holding: Holding): number {
-  return holding.current_value_inr_paise ?? holding.invested_value_inr_paise ?? 0;
-}
-
 function isInrCurrency(currency: string): boolean {
   return currency.trim().toUpperCase() === 'INR';
-}
-
-function allocationLabel(value: string | null | undefined): string {
-  const label = value?.trim();
-  return label ? label : 'Unknown';
-}
-
-function allocationSegmentsFor(
-  holdings: Holding[],
-  getLabel: (holding: Holding) => string | null | undefined,
-): DonutSegment[] {
-  const totals = new Map<string, number>();
-  for (const holding of holdings) {
-    const label = allocationLabel(getLabel(holding));
-    totals.set(label, (totals.get(label) ?? 0) + allocationValue(holding));
-  }
-
-  return Array.from(totals.entries())
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .map(([label, value], index) => ({
-      label,
-      value,
-      color: ALLOCATION_PALETTE[index % ALLOCATION_PALETTE.length],
-    }));
 }
 
 function todayInputDate(): string {
@@ -116,71 +66,8 @@ function todayInputDate(): string {
 }
 
 // ---------------------------------------------------------------------------
-// SVG Donut
+// SVG Donut — see src/components/AllocationDonut.tsx
 // ---------------------------------------------------------------------------
-
-interface DonutSegment {
-  label: string;
-  value: number;
-  color: string;
-}
-
-function DonutChart({ segments }: { segments: DonutSegment[] }) {
-  const visibleSegments = segments.filter((segment) => segment.value > 0);
-  const total = visibleSegments.reduce((sum, s) => sum + s.value, 0);
-  if (total === 0) {
-    return (
-      <svg width={160} height={160} viewBox="0 0 160 160" aria-hidden="true">
-        <circle cx={80} cy={80} r={56} fill="none" stroke="var(--border)" strokeWidth={24} />
-      </svg>
-    );
-  }
-
-  const radius = 56;
-  const circumference = 2 * Math.PI * radius;
-  let consumed = 0;
-
-  if (visibleSegments.length === 1) {
-    return (
-      <svg width={160} height={160} viewBox="0 0 160 160" aria-hidden="true">
-        <circle
-          cx={80}
-          cy={80}
-          r={radius}
-          fill="none"
-          stroke={visibleSegments[0].color}
-          strokeWidth={24}
-        />
-      </svg>
-    );
-  }
-
-  return (
-    <svg width={160} height={160} viewBox="0 0 160 160" aria-hidden="true">
-      <circle cx={80} cy={80} r={radius} fill="none" stroke="var(--border)" strokeWidth={24} />
-      {visibleSegments.map((segment) => {
-        const length = (segment.value / total) * circumference;
-        const dashOffset = -consumed;
-        consumed += length;
-
-        return (
-          <circle
-            key={segment.label}
-            cx={80}
-            cy={80}
-            r={radius}
-            fill="none"
-            stroke={segment.color}
-            strokeWidth={24}
-            strokeDasharray={`${length} ${circumference - length}`}
-            strokeDashoffset={dashOffset}
-            transform="rotate(-90 80 80)"
-          />
-        );
-      })}
-    </svg>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Form state types
@@ -517,9 +404,9 @@ export default function InvestmentsPage() {
             padding: '14px 16px',
           }}
         >
-          <AllocationChart title="Allocation by Type" segments={donutSegments} />
-          <AllocationChart title="Allocation by Sector" segments={sectorSegments} />
-          <AllocationChart title="Allocation by Geography" segments={geographySegments} />
+          <AllocationDonut title="Allocation by Type" segments={donutSegments} />
+          <AllocationDonut title="Allocation by Sector" segments={sectorSegments} />
+          <AllocationDonut title="Allocation by Geography" segments={geographySegments} />
         </div>
       </div>
 
@@ -810,94 +697,7 @@ function MoneyWithInr({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Allocation legend
-// ---------------------------------------------------------------------------
-
-function AllocationChart({ title, segments }: { title: string; segments: DonutSegment[] }) {
-  return (
-    <section style={allocationSectionStyle}>
-      <div style={sidebarLabelStyle}>{title}</div>
-      <div style={{ display: 'flex', justifyContent: 'center', margin: '12px 0' }}>
-        <DonutChart segments={segments} />
-      </div>
-      <AllocationLegend segments={segments} />
-    </section>
-  );
-}
-
-function AllocationLegend({ segments }: { segments: DonutSegment[] }) {
-  const visibleSegments = segments.filter((segment) => segment.value > 0);
-  const total = visibleSegments.reduce((s, seg) => s + seg.value, 0);
-  if (visibleSegments.length === 0 || total === 0) {
-    return (
-      <div
-        style={{
-          color: 'var(--text3)',
-          fontSize: 10,
-          fontFamily: 'var(--font-cond)',
-          textAlign: 'center',
-          marginTop: 8,
-        }}
-      >
-        No data
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-      {visibleSegments.map((seg) => {
-        const pct = total > 0 ? ((seg.value / total) * 100).toFixed(1) : '0.0';
-        return (
-          <div key={seg.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span
-              style={{
-                display: 'inline-block',
-                width: 8,
-                height: 8,
-                background: seg.color,
-                flexShrink: 0,
-              }}
-            />
-            <span
-              style={{
-                flex: 1,
-                fontFamily: 'var(--font-cond)',
-                fontSize: 10,
-                color: 'var(--text2)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.06em',
-              }}
-            >
-              {seg.label}
-            </span>
-            <span
-              style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: 10,
-                color: 'var(--text3)',
-              }}
-            >
-              {formatMoney(seg.value, 'INR', true)}
-            </span>
-            <span
-              style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: 10,
-                color: 'var(--text3)',
-                minWidth: 38,
-                textAlign: 'right',
-              }}
-            >
-              {pct}%
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
+// Allocation charts — rendered via shared AllocationDonut component
 
 // ---------------------------------------------------------------------------
 // Add Instrument modal
@@ -1228,21 +1028,6 @@ function blankPriceForm(): PriceFormState {
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
-
-const sidebarLabelStyle: CSSProperties = {
-  fontFamily: 'var(--font-cond)',
-  fontSize: 10,
-  fontWeight: 600,
-  letterSpacing: '0.12em',
-  textTransform: 'uppercase',
-  color: 'var(--text3)',
-};
-
-const allocationSectionStyle: CSSProperties = {
-  paddingBottom: 16,
-  marginBottom: 16,
-  borderBottom: '1px solid var(--border)',
-};
 
 const actionBtnStyle: CSSProperties = {
   width: 24,

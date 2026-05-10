@@ -21,6 +21,9 @@ pub fn router() -> Router<AppState> {
         .route("/holdings", get(list_holdings))
         .route("/holdings/summary", get(holdings_summary))
         .route("/holdings/:instrument_id/drilldown", get(holding_drilldown))
+        .route("/portfolio-history", get(portfolio_history))
+        .route("/xirr-summary", get(xirr_summary))
+        .route("/dividend-income", get(dividend_income))
 }
 
 // ---------------------------------------------------------------------------
@@ -776,6 +779,470 @@ fn days_between(from: &str, to: &str) -> i64 {
     let a = NaiveDate::parse_from_str(from, "%Y-%m-%d").unwrap_or_default();
     let b = NaiveDate::parse_from_str(to, "%Y-%m-%d").unwrap_or_default();
     (b - a).num_days()
+}
+
+// ---------------------------------------------------------------------------
+// Portfolio history
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+struct PortfolioHistoryPoint {
+    date: String,
+    value_paise: i64,
+    invested_paise: i64,
+}
+
+#[derive(Debug, FromRow)]
+struct AllPriceSnapRow {
+    instrument_id: String,
+    date: String,
+    price_paise: i64,
+}
+
+/// GET /api/v1/investments/portfolio-history
+async fn portfolio_history(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Query(q): Query<HoldingsQuery>,
+) -> Result<Json<Value>> {
+    let pool = &state.db;
+    let account_id = q.account_id.as_deref();
+    let fx_rates = FxRateMap::latest_for_user(pool, &user.id).await?;
+
+    // All investment transactions ordered by date ASC
+    let txs: Vec<InvestmentTransactionRow> = match account_id {
+        Some(aid) => sqlx::query_as::<_, InvestmentTransactionRow>(
+            "SELECT i.id AS instrument_id, i.name AS instrument_name,
+                    i.ticker AS instrument_ticker, i.type AS instrument_type,
+                    i.currency AS instrument_currency, i.sector AS instrument_sector,
+                    i.geography AS instrument_geography,
+                    t.account_id, a.name AS account_name,
+                    t.type AS transaction_type, t.date,
+                    itd.quantity, itd.price_per_unit_paise, itd.fees_paise,
+                    itd.cost_basis_per_unit_paise
+             FROM investment_transaction_details itd
+             JOIN transactions t ON t.id = itd.transaction_id
+             JOIN instruments i ON i.id = itd.instrument_id
+             JOIN accounts a ON a.id = t.account_id
+             WHERE t.user_id = ? AND t.deleted_at IS NULL
+               AND t.type IN ('investment_buy', 'investment_sell')
+               AND t.account_id = ?
+             ORDER BY t.date ASC, t.created_at ASC",
+        )
+        .bind(&user.id)
+        .bind(aid)
+        .fetch_all(pool)
+        .await?,
+        None => sqlx::query_as::<_, InvestmentTransactionRow>(
+            "SELECT i.id AS instrument_id, i.name AS instrument_name,
+                    i.ticker AS instrument_ticker, i.type AS instrument_type,
+                    i.currency AS instrument_currency, i.sector AS instrument_sector,
+                    i.geography AS instrument_geography,
+                    t.account_id, a.name AS account_name,
+                    t.type AS transaction_type, t.date,
+                    itd.quantity, itd.price_per_unit_paise, itd.fees_paise,
+                    itd.cost_basis_per_unit_paise
+             FROM investment_transaction_details itd
+             JOIN transactions t ON t.id = itd.transaction_id
+             JOIN instruments i ON i.id = itd.instrument_id
+             JOIN accounts a ON a.id = t.account_id
+             WHERE t.user_id = ? AND t.deleted_at IS NULL
+               AND t.type IN ('investment_buy', 'investment_sell')
+             ORDER BY t.date ASC, t.created_at ASC",
+        )
+        .bind(&user.id)
+        .fetch_all(pool)
+        .await?,
+    };
+
+    // Build per-instrument currency map
+    let mut currency_map: BTreeMap<String, String> = BTreeMap::new();
+    for tx in &txs {
+        currency_map
+            .entry(tx.instrument_id.clone())
+            .or_insert_with(|| tx.instrument_currency.clone());
+    }
+
+    // Precompute tagged buy/sell entries (date-ordered, same order as txs)
+    struct BuyEntry {
+        date: String,
+        instrument_id: String,
+        account_id: String,
+        quantity: f64,
+        inr_cost: Option<i64>,
+    }
+    struct SellEntry {
+        date: String,
+        instrument_id: String,
+        account_id: String,
+        quantity: f64,
+    }
+
+    let mut buy_entries: Vec<BuyEntry> = Vec::new();
+    let mut sell_entries: Vec<SellEntry> = Vec::new();
+
+    for tx in &txs {
+        if tx.transaction_type == "investment_buy" {
+            let gross =
+                (tx.quantity * tx.price_per_unit_paise as f64).round() as i64 + tx.fees_paise;
+            let inr = convert_to_inr_on_or_latest(
+                pool,
+                &user.id,
+                &fx_rates,
+                &tx.instrument_currency,
+                gross,
+                &tx.date,
+            )
+            .await?;
+            buy_entries.push(BuyEntry {
+                date: tx.date.clone(),
+                instrument_id: tx.instrument_id.clone(),
+                account_id: tx.account_id.clone(),
+                quantity: tx.quantity,
+                inr_cost: inr,
+            });
+        } else {
+            sell_entries.push(SellEntry {
+                date: tx.date.clone(),
+                instrument_id: tx.instrument_id.clone(),
+                account_id: tx.account_id.clone(),
+                quantity: tx.quantity,
+            });
+        }
+    }
+
+    // All price snapshots
+    let snaps: Vec<AllPriceSnapRow> = sqlx::query_as::<_, AllPriceSnapRow>(
+        "SELECT instrument_id, date, price_paise FROM price_snapshots
+         WHERE user_id = ? ORDER BY instrument_id, date ASC",
+    )
+    .bind(&user.id)
+    .fetch_all(pool)
+    .await?;
+
+    // price_map: instrument_id -> BTreeMap<date, price>
+    let mut price_map: BTreeMap<String, BTreeMap<String, i64>> = BTreeMap::new();
+    for snap in &snaps {
+        price_map
+            .entry(snap.instrument_id.clone())
+            .or_default()
+            .insert(snap.date.clone(), snap.price_paise);
+    }
+
+    // All distinct snapshot dates, sorted
+    let snapshot_dates: Vec<String> = {
+        let mut set = std::collections::BTreeSet::new();
+        for s in &snaps {
+            set.insert(s.date.clone());
+        }
+        set.into_iter().collect()
+    };
+
+    // Holding state per (instrument_id, account_id): tracks qty and cumulative INR buy cost
+    struct HoldingState {
+        bought_qty: f64,
+        sold_qty: f64,
+        total_buy_cost_inr: Option<i64>,
+        currency: String,
+    }
+    let mut holding_state: BTreeMap<(String, String), HoldingState> = BTreeMap::new();
+    let mut buy_idx = 0usize;
+    let mut sell_idx = 0usize;
+    let mut result: Vec<PortfolioHistoryPoint> = Vec::with_capacity(snapshot_dates.len());
+
+    for date in &snapshot_dates {
+        // Advance buy entries
+        while buy_idx < buy_entries.len() && buy_entries[buy_idx].date.as_str() <= date.as_str() {
+            let e = &buy_entries[buy_idx];
+            let state = holding_state
+                .entry((e.instrument_id.clone(), e.account_id.clone()))
+                .or_insert_with(|| HoldingState {
+                    bought_qty: 0.0,
+                    sold_qty: 0.0,
+                    total_buy_cost_inr: Some(0),
+                    currency: currency_map
+                        .get(&e.instrument_id)
+                        .cloned()
+                        .unwrap_or_else(|| "INR".to_string()),
+                });
+            state.bought_qty += e.quantity;
+            state.total_buy_cost_inr = add_optional_paise(state.total_buy_cost_inr, e.inr_cost);
+            buy_idx += 1;
+        }
+
+        // Advance sell entries
+        while sell_idx < sell_entries.len()
+            && sell_entries[sell_idx].date.as_str() <= date.as_str()
+        {
+            let e = &sell_entries[sell_idx];
+            if let Some(state) = holding_state.get_mut(&(e.instrument_id.clone(), e.account_id.clone())) {
+                state.sold_qty += e.quantity;
+            }
+            sell_idx += 1;
+        }
+
+        // Compute value and cost basis only for holdings that have a price at this date.
+        // Keeping both metrics on the same instrument set ensures they are directly comparable.
+        let mut total_value: i64 = 0;
+        let mut total_invested: i64 = 0;
+        let mut has_value = false;
+
+        for ((instrument_id, _), state) in &holding_state {
+            let remaining = state.bought_qty - state.sold_qty;
+            if remaining <= 0.0001 {
+                continue;
+            }
+
+            // Latest price on or before this date
+            let price = price_map
+                .get(instrument_id)
+                .and_then(|m| m.range(..=date.clone()).next_back().map(|(_, &p)| p));
+
+            if let Some(p) = price {
+                // Portfolio value
+                let value_native = (remaining * p as f64).round() as i64;
+                let value_inr = fx_rates
+                    .convert_to_inr_paise(&state.currency, value_native)
+                    .unwrap_or(value_native);
+                total_value += value_inr;
+
+                // Cost basis prorated to remaining qty (matches holdings/summary definition)
+                if let Some(total_cost) = state.total_buy_cost_inr {
+                    if state.bought_qty > 0.0 {
+                        let cost_basis =
+                            ((total_cost as f64 / state.bought_qty) * remaining).round() as i64;
+                        total_invested += cost_basis;
+                    }
+                }
+
+                has_value = true;
+            }
+        }
+
+        if !has_value {
+            continue;
+        }
+
+        result.push(PortfolioHistoryPoint {
+            date: date.clone(),
+            value_paise: total_value,
+            invested_paise: total_invested,
+        });
+    }
+
+    Ok(Json(json!({ "history": result })))
+}
+
+// ---------------------------------------------------------------------------
+// XIRR summary
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, FromRow)]
+struct XirrBuyRow {
+    instrument_id: String,
+    account_id: String,
+    date: String,
+    quantity: f64,
+    price_per_unit_paise: i64,
+    fees_paise: i64,
+}
+
+#[derive(Debug, FromRow)]
+struct XirrSellRow {
+    date: String,
+    quantity: f64,
+    price_per_unit_paise: i64,
+    fees_paise: i64,
+}
+
+/// GET /api/v1/investments/xirr-summary
+async fn xirr_summary(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Query(q): Query<HoldingsQuery>,
+) -> Result<Json<Value>> {
+    let pool = &state.db;
+    let account_id = q.account_id.as_deref();
+    let today = chrono::Local::now().date_naive().to_string();
+
+    // Holdings for current values
+    let holdings = compute_holdings(pool, &user.id, account_id).await?;
+
+    // All buy transactions
+    let buy_rows: Vec<XirrBuyRow> = match account_id {
+        Some(aid) => sqlx::query_as::<_, XirrBuyRow>(
+            "SELECT itd.instrument_id, t.account_id, t.date,
+                    itd.quantity, itd.price_per_unit_paise, itd.fees_paise
+             FROM investment_transaction_details itd
+             JOIN transactions t ON t.id = itd.transaction_id
+             WHERE t.user_id = ? AND t.account_id = ?
+               AND t.type = 'investment_buy' AND t.deleted_at IS NULL
+             ORDER BY t.date ASC, t.created_at ASC",
+        )
+        .bind(&user.id)
+        .bind(aid)
+        .fetch_all(pool)
+        .await?,
+        None => sqlx::query_as::<_, XirrBuyRow>(
+            "SELECT itd.instrument_id, t.account_id, t.date,
+                    itd.quantity, itd.price_per_unit_paise, itd.fees_paise
+             FROM investment_transaction_details itd
+             JOIN transactions t ON t.id = itd.transaction_id
+             WHERE t.user_id = ?
+               AND t.type = 'investment_buy' AND t.deleted_at IS NULL
+             ORDER BY t.date ASC, t.created_at ASC",
+        )
+        .bind(&user.id)
+        .fetch_all(pool)
+        .await?,
+    };
+
+    // All sell transactions (for portfolio-level XIRR)
+    let sell_rows: Vec<XirrSellRow> = match account_id {
+        Some(aid) => sqlx::query_as::<_, XirrSellRow>(
+            "SELECT t.date, itd.quantity, itd.price_per_unit_paise, itd.fees_paise
+             FROM investment_transaction_details itd
+             JOIN transactions t ON t.id = itd.transaction_id
+             WHERE t.user_id = ? AND t.account_id = ?
+               AND t.type = 'investment_sell' AND t.deleted_at IS NULL
+             ORDER BY t.date ASC",
+        )
+        .bind(&user.id)
+        .bind(aid)
+        .fetch_all(pool)
+        .await?,
+        None => sqlx::query_as::<_, XirrSellRow>(
+            "SELECT t.date, itd.quantity, itd.price_per_unit_paise, itd.fees_paise
+             FROM investment_transaction_details itd
+             JOIN transactions t ON t.id = itd.transaction_id
+             WHERE t.user_id = ?
+               AND t.type = 'investment_sell' AND t.deleted_at IS NULL
+             ORDER BY t.date ASC",
+        )
+        .bind(&user.id)
+        .fetch_all(pool)
+        .await?,
+    };
+
+    let earliest_date: Option<String> = buy_rows.first().map(|r| r.date.clone());
+
+    // Group buy rows by (instrument_id, account_id) -> Vec<(date, invested_paise)>
+    let mut flows_by_holding: BTreeMap<(String, String), Vec<(String, i64)>> = BTreeMap::new();
+    let mut portfolio_flows: Vec<(f64, f64)> = Vec::new();
+
+    for row in &buy_rows {
+        let invested =
+            (row.quantity * row.price_per_unit_paise as f64).round() as i64 + row.fees_paise;
+        flows_by_holding
+            .entry((row.instrument_id.clone(), row.account_id.clone()))
+            .or_default()
+            .push((row.date.clone(), invested));
+
+        if let Some(ref earliest) = earliest_date {
+            let t = days_between(earliest, &row.date) as f64 / 365.0;
+            portfolio_flows.push((-(invested as f64), t));
+        }
+    }
+
+    // Add sell inflows for portfolio XIRR
+    if let Some(ref earliest) = earliest_date {
+        for row in &sell_rows {
+            let proceeds =
+                (row.quantity * row.price_per_unit_paise as f64).round() as i64 - row.fees_paise;
+            let t = days_between(earliest, &row.date) as f64 / 365.0;
+            portfolio_flows.push((proceeds as f64, t));
+        }
+    }
+
+    // Total current portfolio value as terminal inflow
+    let total_current: i64 = holdings
+        .iter()
+        .filter_map(|h| h.current_value_paise)
+        .sum();
+
+    let portfolio_xirr_pct = if !portfolio_flows.is_empty() && total_current > 0 {
+        if let Some(ref earliest) = earliest_date {
+            let t_today = days_between(earliest, &today) as f64 / 365.0;
+            let mut all_flows = portfolio_flows.clone();
+            all_flows.push((total_current as f64, t_today));
+            compute_xirr(&all_flows).map(|r| (r * 10000.0).round() / 100.0)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Per-holding XIRR
+    let mut holding_xirrs: Vec<Value> = Vec::with_capacity(holdings.len());
+    for holding in &holdings {
+        let key = (holding.instrument_id.clone(), holding.account_id.clone());
+        let xirr_pct = match (flows_by_holding.get(&key), holding.current_value_paise) {
+            (Some(flows), Some(cv)) if !flows.is_empty() => {
+                let earliest = &flows[0].0;
+                let mut xirr_flows: Vec<(f64, f64)> = flows
+                    .iter()
+                    .map(|(date, amount)| {
+                        let t = days_between(earliest, date) as f64 / 365.0;
+                        (-(*amount as f64), t)
+                    })
+                    .collect();
+                let t_today = days_between(earliest, &today) as f64 / 365.0;
+                xirr_flows.push((cv as f64, t_today));
+                compute_xirr(&xirr_flows).map(|r| (r * 10000.0).round() / 100.0)
+            }
+            _ => None,
+        };
+        holding_xirrs.push(json!({
+            "instrument_id": holding.instrument_id,
+            "account_id": holding.account_id,
+            "xirr_pct": xirr_pct,
+        }));
+    }
+
+    Ok(Json(json!({
+        "portfolio_xirr_pct": portfolio_xirr_pct,
+        "holdings": holding_xirrs,
+    })))
+}
+
+// ---------------------------------------------------------------------------
+// Dividend income
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, FromRow)]
+struct DividendTxRow {
+    date: String,
+    amount_paise: i64,
+}
+
+/// GET /api/v1/investments/dividend-income
+async fn dividend_income(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+) -> Result<Json<Value>> {
+    let rows: Vec<DividendTxRow> = sqlx::query_as::<_, DividendTxRow>(
+        "SELECT date, amount_paise FROM transactions
+         WHERE user_id = ? AND type = 'dividend' AND deleted_at IS NULL
+         ORDER BY date ASC",
+    )
+    .bind(&user.id)
+    .fetch_all(&state.db)
+    .await?;
+
+    // Group by month (YYYY-MM)
+    let mut by_month: BTreeMap<String, i64> = BTreeMap::new();
+    for row in &rows {
+        let month = row.date.chars().take(7).collect::<String>();
+        *by_month.entry(month).or_insert(0) += row.amount_paise;
+    }
+
+    let income: Vec<Value> = by_month
+        .into_iter()
+        .map(|(month, amount_paise)| json!({ "month": month, "amount_paise": amount_paise }))
+        .collect();
+
+    Ok(Json(json!({ "income": income })))
 }
 
 fn compute_xirr(flows: &[(f64, f64)]) -> Option<f64> {

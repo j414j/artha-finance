@@ -1,5 +1,5 @@
 import { request } from './client';
-import type { Holding, HoldingDrilldown, HoldingsSummary } from '../types/investment';
+import type { Holding, HoldingDrilldown, HoldingsSummary, PortfolioHistoryPoint, XirrSummary, DividendMonthData } from '../types/investment';
 
 export const getHoldings = (accountId?: string) =>
   request<{ holdings: Holding[] }>(
@@ -15,3 +15,16 @@ export const getHoldingDrilldown = (instrumentId: string, accountId?: string) =>
   request<HoldingDrilldown>(
     `/investments/holdings/${instrumentId}/drilldown${accountId ? `?account_id=${accountId}` : ''}`
   );
+
+export const getPortfolioHistory = (accountId?: string) =>
+  request<{ history: PortfolioHistoryPoint[] }>(
+    `/investments/portfolio-history${accountId ? `?account_id=${accountId}` : ''}`
+  );
+
+export const getXirrSummary = (accountId?: string) =>
+  request<XirrSummary>(
+    `/investments/xirr-summary${accountId ? `?account_id=${accountId}` : ''}`
+  );
+
+export const getDividendIncome = () =>
+  request<{ income: DividendMonthData[] }>('/investments/dividend-income');
