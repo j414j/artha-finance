@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 import { getAccounts } from "../api/accounts";
@@ -8,6 +8,8 @@ import { getInstruments } from "../api/instruments";
 import type { Instrument } from "../types/instrument";
 import type { LatestFxRate } from "../types/fx_rate";
 import {
+  BatchCreateError,
+  batchCreateTransactions,
   bulkTransactions,
   createTransaction,
   deleteTransaction,
@@ -24,6 +26,7 @@ import Tag from "../components/Tag";
 import type { Account } from "../types/account";
 import type { CategoryNode, CategoryType } from "../types/category";
 import type {
+  BatchRowError,
   RecurrenceFrequency,
   Transaction,
   TransactionFilters,
@@ -149,6 +152,7 @@ export default function TransactionsPage() {
   const [bulkTag, setBulkTag] = useState("");
   const [bulkCategoryId, setBulkCategoryId] = useState("");
   const [bulkWorking, setBulkWorking] = useState(false);
+  const [bulkEntryMode, setBulkEntryMode] = useState(false);
 
   const flatCategories = useMemo(() => flattenCategories(categories), [categories]);
 
@@ -373,6 +377,18 @@ export default function TransactionsPage() {
         }}
       >
         <main style={{ background: "var(--bg2)", minWidth: 0 }}>
+          {bulkEntryMode ? (
+            <BulkEntryPanel
+              accounts={accounts}
+              categories={flatCategories.filter((c) => c.type === "expense")}
+              onSave={async () => {
+                setBulkEntryMode(false);
+                await refreshAfterMutation();
+              }}
+              onDiscard={() => setBulkEntryMode(false)}
+            />
+          ) : (
+            <>
           <SummaryStrip summary={summary} />
           <FilterBar
             filters={draftFilters}
@@ -383,6 +399,7 @@ export default function TransactionsPage() {
             onReset={resetFilters}
             onExport={handleCsvExport}
             onAdd={openCreateModal}
+            onBulkEntry={() => setBulkEntryMode(true)}
           />
 
           {error && (
@@ -447,6 +464,8 @@ export default function TransactionsPage() {
               <span style={mutedCapsStyle}>End of result set</span>
             )}
           </div>
+            </>
+          )}
         </main>
 
         <TransactionsSidebar
@@ -537,6 +556,444 @@ function SummaryStrip({ summary }: { summary: TransactionSummary }) {
   );
 }
 
+// ─── Bulk Entry ───────────────────────────────────────────────────────────────
+
+interface BulkRow {
+  key: string;
+  date: string;
+  accountId: string;
+  description: string;
+  amount: string;
+  categoryId: string;
+  notes: string;
+}
+
+const BULK_COLS = ["date", "accountId", "description", "amount", "categoryId", "notes"] as const;
+type BulkCol = (typeof BULK_COLS)[number];
+
+let _rowKeyCounter = 0;
+function newRow(prev?: BulkRow): BulkRow {
+  return {
+    key: String(++_rowKeyCounter),
+    date: prev?.date ?? new Date().toISOString().slice(0, 10),
+    accountId: prev?.accountId ?? "",
+    description: "",
+    amount: "",
+    categoryId: prev?.categoryId ?? "",
+    notes: "",
+  };
+}
+
+function rowIsEmpty(row: BulkRow): boolean {
+  return !row.description.trim() && !row.amount.trim() && !row.notes.trim();
+}
+
+function rowIsComplete(row: BulkRow): boolean {
+  return (
+    !!row.date &&
+    !!row.accountId &&
+    !!row.description.trim() &&
+    !!row.amount.trim() &&
+    !!row.categoryId
+  );
+}
+
+function BulkEntryPanel({
+  accounts,
+  categories,
+  onSave,
+  onDiscard,
+}: {
+  accounts: Account[];
+  categories: FlatCategory[];
+  onSave: () => Promise<void>;
+  onDiscard: () => void;
+}) {
+  const [rows, setRows] = useState<BulkRow[]>(() => [newRow()]);
+  const [rowErrors, setRowErrors] = useState<Map<string, string>>(new Map());
+  const [globalError, setGlobalError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const cellRefs = useRef<Map<string, HTMLElement>>(new Map());
+
+  const setCellRef = (rowKey: string, col: BulkCol, el: HTMLElement | null) => {
+    const k = `${rowKey}:${col}`;
+    if (el) cellRefs.current.set(k, el);
+    else cellRefs.current.delete(k);
+  };
+
+  const focusCell = (rowKey: string, col: BulkCol) => {
+    cellRefs.current.get(`${rowKey}:${col}`)?.focus();
+  };
+
+  const moveFocus = (rowKey: string, col: BulkCol, direction: "next-col" | "next-row") => {
+    const colIdx = BULK_COLS.indexOf(col);
+    setRows((current) => {
+      const rowIdx = current.findIndex((r) => r.key === rowKey);
+      if (rowIdx === -1) return current;
+
+      if (direction === "next-col") {
+        if (colIdx < BULK_COLS.length - 1) {
+          setTimeout(() => focusCell(rowKey, BULK_COLS[colIdx + 1]), 0);
+        } else if (rowIdx < current.length - 1) {
+          setTimeout(() => focusCell(current[rowIdx + 1].key, BULK_COLS[0]), 0);
+        }
+      } else {
+        const targetRowIdx = rowIdx + 1;
+        if (targetRowIdx < current.length) {
+          setTimeout(() => focusCell(current[targetRowIdx].key, col), 0);
+        }
+      }
+      return current;
+    });
+  };
+
+  const updateRow = (key: string, field: BulkCol, value: string) => {
+    setRows((current) => {
+      const rowIdx = current.findIndex((r) => r.key === key);
+      if (rowIdx === -1) return current;
+      const updated = current.map((r) => (r.key === key ? { ...r, [field]: value } : r));
+      // Only append a new trailing row when the LAST row transitions from empty → non-empty.
+      const isLastRow = rowIdx === current.length - 1;
+      if (isLastRow && rowIsEmpty(current[rowIdx]) && !rowIsEmpty(updated[rowIdx])) {
+        return [...updated, newRow(updated[rowIdx])];
+      }
+      return updated;
+    });
+    // Clear this row's error as the user corrects it.
+    setRowErrors((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Map(prev);
+      next.delete(key);
+      return next;
+    });
+  };
+
+  const removeRow = (key: string) => {
+    setRows((current) => {
+      const next = current.filter((r) => r.key !== key);
+      return next.length === 0 ? [newRow()] : next;
+    });
+  };
+
+  const handleSave = async () => {
+    setGlobalError("");
+    setRowErrors(new Map());
+
+    const nonEmpty = rows.filter((r) => !rowIsEmpty(r));
+    if (nonEmpty.length === 0) {
+      setGlobalError("Add at least one transaction before saving.");
+      return;
+    }
+
+    // Local completeness check
+    const localErrors = new Map<string, string>();
+    nonEmpty.forEach((row) => {
+      if (!rowIsComplete(row)) {
+        const missing = [];
+        if (!row.date) missing.push("date");
+        if (!row.accountId) missing.push("account");
+        if (!row.description.trim()) missing.push("description");
+        if (!row.amount.trim()) missing.push("amount");
+        if (!row.categoryId) missing.push("category");
+        localErrors.set(row.key, `Missing: ${missing.join(", ")}`);
+      }
+    });
+    if (localErrors.size > 0) {
+      setRowErrors(localErrors);
+      return;
+    }
+
+    const payload = nonEmpty.map((row) => ({
+      date: row.date,
+      account_id: row.accountId,
+      description: row.description.trim(),
+      amount_paise: parseMoneyInput(row.amount),
+      category_id: row.categoryId,
+      notes: row.notes.trim() || undefined,
+    }));
+
+    setSaving(true);
+    try {
+      await batchCreateTransactions({ transactions: payload });
+      await onSave();
+    } catch (err) {
+      if (err instanceof BatchCreateError && err.rowErrors.length > 0) {
+        const serverErrors = new Map<string, string>();
+        err.rowErrors.forEach(({ row, message }) => {
+          const rowKey = nonEmpty[row]?.key;
+          if (rowKey) serverErrors.set(rowKey, message);
+        });
+        setRowErrors(serverErrors);
+        setGlobalError("Some rows failed validation — fix them and try again.");
+      } else {
+        setGlobalError(err instanceof Error ? err.message : "Failed to save transactions.");
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDiscard = () => {
+    const hasData = rows.some((r) => !rowIsEmpty(r));
+    if (hasData && !window.confirm("Discard all unsaved rows?")) return;
+    onDiscard();
+  };
+
+  const nonEmptyCount = rows.filter((r) => !rowIsEmpty(r)).length;
+
+  const colWidths = "120px 160px 1fr 110px 160px 1fr 32px";
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      {/* Header */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "8px 12px",
+          borderBottom: "1px solid var(--border)",
+          background: "var(--bg3)",
+          gap: 12,
+          flexShrink: 0,
+        }}
+      >
+        <span style={{ fontFamily: "var(--font-condensed)", fontSize: 13, color: "var(--text-muted)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+          Bulk Expense Entry
+        </span>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Button variant="ghost" onClick={handleDiscard} disabled={saving}>
+            Discard
+          </Button>
+          <Button onClick={() => void handleSave()} disabled={saving || nonEmptyCount === 0}>
+            {saving ? "Saving…" : `Save ${nonEmptyCount > 0 ? nonEmptyCount : ""} Transaction${nonEmptyCount !== 1 ? "s" : ""}`}
+          </Button>
+        </div>
+      </div>
+
+      {globalError && (
+        <div style={{ padding: "8px 12px", background: "color-mix(in srgb, var(--red) 12%, var(--bg2))", color: "var(--red)", fontSize: 12, borderBottom: "1px solid var(--border)" }}>
+          {globalError}
+        </div>
+      )}
+
+      {/* Column headers */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: colWidths,
+          gap: 1,
+          background: "var(--border)",
+          borderBottom: "1px solid var(--border)",
+          flexShrink: 0,
+        }}
+      >
+        {["Date", "Account", "Description", "Amount", "Category", "Notes", ""].map((h) => (
+          <div
+            key={h}
+            style={{
+              background: "var(--bg3)",
+              padding: "5px 8px",
+              fontFamily: "var(--font-condensed)",
+              fontSize: 11,
+              color: "var(--text-muted)",
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+            }}
+          >
+            {h}
+          </div>
+        ))}
+      </div>
+
+      {/* Rows */}
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        {rows.map((row) => {
+          const rowErr = rowErrors.get(row.key);
+          const isEmpty = rowIsEmpty(row);
+          return (
+            <div key={row.key}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: colWidths,
+                  gap: 1,
+                  background: "var(--border)",
+                  borderLeft: rowErr ? "3px solid var(--red)" : "3px solid transparent",
+                }}
+              >
+                {/* Date */}
+                <div style={{ background: "var(--bg2)" }}>
+                  <input
+                    ref={(el) => setCellRef(row.key, "date", el)}
+                    type="date"
+                    value={row.date}
+                    onChange={(e) => updateRow(row.key, "date", e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); moveFocus(row.key, "date", "next-row"); }
+                      if (e.key === "Tab" && !e.shiftKey) { e.preventDefault(); moveFocus(row.key, "date", "next-col"); }
+                    }}
+                    style={cellInputStyle}
+                  />
+                </div>
+
+                {/* Account */}
+                <div style={{ background: "var(--bg2)" }}>
+                  <select
+                    ref={(el) => setCellRef(row.key, "accountId", el)}
+                    value={row.accountId}
+                    onChange={(e) => updateRow(row.key, "accountId", e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); moveFocus(row.key, "accountId", "next-row"); }
+                      if (e.key === "Tab" && !e.shiftKey) { e.preventDefault(); moveFocus(row.key, "accountId", "next-col"); }
+                    }}
+                    style={cellSelectStyle}
+                  >
+                    <option value="">— account —</option>
+                    {accounts.map((a) => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Description */}
+                <div style={{ background: "var(--bg2)" }}>
+                  <input
+                    ref={(el) => setCellRef(row.key, "description", el)}
+                    type="text"
+                    value={row.description}
+                    placeholder="description"
+                    onChange={(e) => updateRow(row.key, "description", e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); moveFocus(row.key, "description", "next-row"); }
+                      if (e.key === "Tab" && !e.shiftKey) { e.preventDefault(); moveFocus(row.key, "description", "next-col"); }
+                    }}
+                    style={cellInputStyle}
+                  />
+                </div>
+
+                {/* Amount */}
+                <div style={{ background: "var(--bg2)" }}>
+                  <input
+                    ref={(el) => setCellRef(row.key, "amount", el)}
+                    type="text"
+                    inputMode="decimal"
+                    value={row.amount}
+                    placeholder="0.00"
+                    onChange={(e) => updateRow(row.key, "amount", e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); moveFocus(row.key, "amount", "next-row"); }
+                      if (e.key === "Tab" && !e.shiftKey) { e.preventDefault(); moveFocus(row.key, "amount", "next-col"); }
+                    }}
+                    style={{ ...cellInputStyle, fontFamily: "var(--font-mono)", textAlign: "right" }}
+                  />
+                </div>
+
+                {/* Category */}
+                <div style={{ background: "var(--bg2)" }}>
+                  <select
+                    ref={(el) => setCellRef(row.key, "categoryId", el)}
+                    value={row.categoryId}
+                    onChange={(e) => updateRow(row.key, "categoryId", e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); moveFocus(row.key, "categoryId", "next-row"); }
+                      if (e.key === "Tab" && !e.shiftKey) { e.preventDefault(); moveFocus(row.key, "categoryId", "next-col"); }
+                    }}
+                    style={cellSelectStyle}
+                  >
+                    <option value="">— category —</option>
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>{categoryLabel(c)}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Notes */}
+                <div style={{ background: "var(--bg2)" }}>
+                  <input
+                    ref={(el) => setCellRef(row.key, "notes", el)}
+                    type="text"
+                    value={row.notes}
+                    placeholder="optional"
+                    onChange={(e) => updateRow(row.key, "notes", e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); moveFocus(row.key, "notes", "next-row"); }
+                    }}
+                    style={cellInputStyle}
+                  />
+                </div>
+
+                {/* Remove */}
+                <div style={{ background: "var(--bg2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {!isEmpty && (
+                    <button
+                      type="button"
+                      onClick={() => removeRow(row.key)}
+                      title="Remove row"
+                      style={{
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        color: "var(--text-muted)",
+                        fontSize: 14,
+                        lineHeight: 1,
+                        padding: "2px 4px",
+                        borderRadius: 2,
+                      }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "var(--red)"; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)"; }}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              </div>
+              {rowErr && (
+                <div style={{ padding: "3px 8px 3px 14px", fontSize: 11, color: "var(--red)", background: "color-mix(in srgb, var(--red) 8%, var(--bg2))", borderLeft: "3px solid var(--red)" }}>
+                  {rowErr}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Footer hint */}
+      <div style={{ padding: "6px 12px", borderTop: "1px solid var(--border)", background: "var(--bg3)", flexShrink: 0 }}>
+        <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-condensed)" }}>
+          Tab — next cell &nbsp;·&nbsp; Enter — next row &nbsp;·&nbsp; New rows added automatically
+        </span>
+      </div>
+    </div>
+  );
+}
+
+const cellInputStyle: CSSProperties = {
+  width: "100%",
+  background: "transparent",
+  border: "none",
+  outline: "none",
+  padding: "7px 8px",
+  fontFamily: "var(--font)",
+  fontSize: 13,
+  color: "var(--text)",
+  boxSizing: "border-box",
+};
+
+const cellSelectStyle: CSSProperties = {
+  width: "100%",
+  background: "transparent",
+  border: "none",
+  outline: "none",
+  padding: "7px 8px",
+  fontFamily: "var(--font)",
+  fontSize: 13,
+  color: "var(--text)",
+  boxSizing: "border-box",
+  cursor: "pointer",
+};
+
 function FilterBar({
   filters,
   accounts,
@@ -546,6 +1003,7 @@ function FilterBar({
   onReset,
   onExport,
   onAdd,
+  onBulkEntry,
 }: {
   filters: FilterState;
   accounts: Account[];
@@ -555,6 +1013,7 @@ function FilterBar({
   onReset: () => void;
   onExport: () => void;
   onAdd: () => void;
+  onBulkEntry: () => void;
 }) {
   const update = <K extends keyof FilterState>(key: K, value: FilterState[K]) =>
     onChange({ ...filters, [key]: value });
@@ -671,6 +1130,9 @@ function FilterBar({
         <div style={{ display: "flex", gap: 8 }}>
           <Button type="button" variant="ghost" onClick={onExport}>
             Export CSV
+          </Button>
+          <Button type="button" variant="ghost" onClick={onBulkEntry}>
+            Bulk Entry
           </Button>
           <Button type="button" onClick={onAdd}>
             + Add Transaction

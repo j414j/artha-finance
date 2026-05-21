@@ -480,6 +480,45 @@ Supported actions: `soft_delete`, `add_tag`, `remove_tag`, `categorize`.
 { "updated": 1 }
 ```
 
+### POST /api/v1/transactions/batch
+Create up to 500 expense transactions atomically. All rows are validated first; if any row fails, **none** are created.
+
+**Body**
+```json
+{
+  "transactions": [
+    {
+      "date": "2026-05-10",
+      "account_id": "uuid",
+      "description": "Groceries",
+      "amount_paise": 50000,
+      "category_id": "uuid",
+      "notes": "optional"
+    }
+  ]
+}
+```
+
+**Response 201**
+```json
+{ "created": 3 }
+```
+
+**Error 422** — validation failed for one or more rows
+```json
+{
+  "error": {
+    "code": "BATCH_VALIDATION_FAILED",
+    "message": "Validation failed for one or more rows",
+    "row_errors": [
+      { "row": 0, "message": "amount_paise must be positive" }
+    ]
+  }
+}
+```
+
+**Errors**: `UNAUTHORIZED`, `BAD_REQUEST`, `BATCH_VALIDATION_FAILED`
+
 ### GET /api/v1/transactions/export/csv
 Export up to 10,000 filtered transactions as CSV. Uses the same filters as the list endpoint except cursor pagination.
 

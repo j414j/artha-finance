@@ -14,7 +14,7 @@ use sqlx::{FromRow, QueryBuilder, Sqlite, SqlitePool};
 use uuid::Uuid;
 
 use crate::{
-    error::{AppError, Result},
+    error::{AppError, BatchRowError, Result},
     middleware::auth::AuthUser,
     models::{
         audit::insert_audit_log,
@@ -40,6 +40,7 @@ pub fn router() -> Router<AppState> {
         .route("/summary", get(transaction_summary))
         .route("/export/csv", get(export_transactions_csv))
         .route("/bulk", post(bulk_transactions))
+        .route("/batch", post(batch_create_transactions))
         .route(
             "/:id",
             patch(update_transaction).delete(soft_delete_transaction),
@@ -343,6 +344,112 @@ async fn bulk_transactions(
     tx.commit().await?;
 
     Ok(Json(json!({ "updated": ids.len() })))
+}
+
+#[derive(Debug, Deserialize)]
+struct BatchCreateItem {
+    date: Option<String>,
+    account_id: Option<String>,
+    description: Option<String>,
+    amount_paise: Option<i64>,
+    category_id: Option<String>,
+    notes: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BatchCreateRequest {
+    transactions: Vec<BatchCreateItem>,
+}
+
+async fn batch_create_transactions(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Json(req): Json<BatchCreateRequest>,
+) -> Result<(StatusCode, Json<Value>)> {
+    if req.transactions.is_empty() {
+        return Err(AppError::BadRequest(
+            "transactions array must not be empty".into(),
+        ));
+    }
+    if req.transactions.len() > 500 {
+        return Err(AppError::BadRequest(
+            "Cannot create more than 500 transactions at once".into(),
+        ));
+    }
+
+    // Validate all rows; collect per-row errors instead of failing fast.
+    let mut validated: Vec<ValidatedTransactionInput> = Vec::with_capacity(req.transactions.len());
+    let mut row_errors: Vec<BatchRowError> = Vec::new();
+
+    for (i, item) in req.transactions.iter().enumerate() {
+        let parts = TransactionInputParts {
+            account_id: item.account_id.clone().unwrap_or_default(),
+            transfer_account_id: None,
+            transaction_type: "expense".to_string(),
+            date: item.date.clone().unwrap_or_default(),
+            description: item.description.clone().unwrap_or_default(),
+            amount_paise: item.amount_paise.unwrap_or(0),
+            category_id: item.category_id.clone(),
+            notes: item.notes.clone(),
+            tags: vec![],
+            splits: vec![],
+            is_recurring: false,
+            recurrence_frequency: None,
+            fx_rate: None,
+            fx_to_amount_paise: None,
+            fx_fee_paise: None,
+            instrument_id: None,
+            quantity: None,
+            price_per_unit_paise: None,
+            fees_paise: None,
+        };
+
+        match validate_transaction_input(&state.db, &user.id, parts).await {
+            Ok(v) => validated.push(v),
+            Err(AppError::BadRequest(msg)) => row_errors.push(BatchRowError { row: i, message: msg }),
+            Err(e) => return Err(e),
+        }
+    }
+
+    if !row_errors.is_empty() {
+        return Err(AppError::BatchValidationFailed(row_errors));
+    }
+
+    // All rows valid — insert everything in a single database transaction.
+    let mut tx = state.db.begin().await?;
+    let mut created_ids: Vec<String> = Vec::with_capacity(validated.len());
+
+    for input in &validated {
+        let id = Uuid::new_v4().to_string();
+
+        let (new_deltas, new_contexts) =
+            calculate_new_deltas_in_tx(&mut tx, &user.id, input, &BTreeMap::new()).await?;
+        ensure_balances_can_apply(&new_contexts, &new_deltas)?;
+
+        insert_transaction_in_tx(&mut tx, &id, &user.id, input).await?;
+        replace_tags_in_tx(&mut tx, &id, &user.id, &input.tags).await?;
+        apply_account_deltas_in_tx(&mut tx, &user.id, &new_deltas).await?;
+        replace_account_effects_in_tx(&mut tx, &id, &user.id, &new_deltas).await?;
+
+        insert_audit_log(
+            &mut tx,
+            &user.id,
+            "batch_create",
+            "transaction",
+            &id,
+            json!({ "type": "expense" }),
+        )
+        .await?;
+
+        created_ids.push(id);
+    }
+
+    tx.commit().await?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({ "created": created_ids.len() })),
+    ))
 }
 
 async fn export_transactions_csv(

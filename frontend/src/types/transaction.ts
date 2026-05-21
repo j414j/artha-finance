@@ -128,3 +128,25 @@ export interface BulkTransactionRequest {
   category_id?: string;
   tag?: string;
 }
+
+export interface BatchCreateItem {
+  date: string;
+  account_id: string;
+  description: string;
+  amount_paise: number;
+  category_id: string;
+  notes?: string;
+}
+
+export interface BatchCreateRequest {
+  transactions: BatchCreateItem[];
+}
+
+export interface BatchRowError {
+  row: number;
+  message: string;
+}
+
+export interface BatchCreateResponse {
+  created: number;
+}

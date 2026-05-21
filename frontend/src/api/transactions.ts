@@ -1,5 +1,8 @@
 import { ApiError, request } from "./client";
 import type {
+  BatchCreateRequest,
+  BatchCreateResponse,
+  BatchRowError,
   BulkTransactionRequest,
   Transaction,
   TransactionFilters,
@@ -15,6 +18,18 @@ interface TransactionResponse {
 
 interface BulkTransactionResponse {
   updated: number;
+}
+
+export class BatchCreateError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly code: string,
+    message: string,
+    public readonly rowErrors: BatchRowError[],
+  ) {
+    super(message);
+    this.name = "BatchCreateError";
+  }
 }
 
 export const getTransactions = (filters: TransactionFilters = {}) =>
@@ -43,6 +58,33 @@ export const bulkTransactions = (payload: BulkTransactionRequest) =>
     method: "POST",
     body: JSON.stringify(payload),
   });
+
+export async function batchCreateTransactions(
+  payload: BatchCreateRequest,
+): Promise<BatchCreateResponse> {
+  const res = await fetch("/api/v1/transactions/batch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  const body = await res.json().catch(() => null) as {
+    error?: { code: string; message: string; row_errors?: BatchRowError[] };
+    created?: number;
+  } | null;
+
+  if (!res.ok) {
+    const err = body?.error;
+    throw new BatchCreateError(
+      res.status,
+      err?.code ?? "UNKNOWN",
+      err?.message ?? "An unexpected error occurred",
+      err?.row_errors ?? [],
+    );
+  }
+
+  return body as BatchCreateResponse;
+}
 
 export async function exportTransactionsCsv(filters: TransactionFilters = {}) {
   const response = await fetch(`/api/v1/transactions/export/csv${queryString(filters)}`);

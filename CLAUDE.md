@@ -74,8 +74,15 @@ Key decisions: multi-user from Phase 1 with per-user private data (all domain ta
 - [x] Phase 4 — complete
 - [x] Phase 5 — complete
 - [x] Phase 6 — complete
-- [x] Phase 7 — complete
-- [ ] Phase 8 — not started
+- [x] Phase 7 — complete (Dashboard built using existing APIs directly; no dedicated /api/v1/dashboard/* endpoints)
+- [~] Phase 8 — partially complete
+  - [x] CashFlowReport — fully implemented (Sankey via d3-sankey, bar charts, period selector)
+  - [x] InvestmentsReport — fully implemented (holdings, portfolio history, dividends, XIRR)
+  - [x] NetWorthReport — fully implemented (net worth over time chart, balance sheet, asset allocation)
+  - [x] SpendingReport — fully implemented (category breakdown bar chart, monthly trend, top transactions)
+  - [ ] BudgetReport — stub ("Coming Soon")
+  - [ ] GoalsReport — stub ("Coming Soon")
+  - [ ] Backend /api/v1/reports/* endpoints — not implemented (CashFlow/Investments reports use existing APIs directly)
 - [ ] Phase 9 — not started
 
 ## graphify

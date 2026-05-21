@@ -29,7 +29,7 @@ const REPORT_CARDS: ReportCard[] = [
       'Balance sheet — assets vs liabilities side-by-side',
       'Asset allocation & liability breakdown',
     ],
-    available: false,
+    available: true,
   },
   {
     route: '/reports/spending',
@@ -40,7 +40,7 @@ const REPORT_CARDS: ReportCard[] = [
       'Top merchants & spending heatmap',
       'Period comparison & day-of-month patterns',
     ],
-    available: false,
+    available: true,
   },
   {
     route: '/reports/budget',
