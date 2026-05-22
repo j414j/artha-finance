@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useIsMobile } from '../hooks/useIsMobile'
 
 const TAB_ROUTES = [
   { label: 'Dashboard', path: '/dashboard' },
@@ -18,6 +19,7 @@ export default function Topbar() {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
 
+  const isMobile = useIsMobile()
   const [dateTime, setDateTime] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuPos, setMenuPos] = useState({ top: 0, right: 0 })
@@ -99,98 +101,106 @@ export default function Topbar() {
           ARTHA <span style={{ color: 'var(--accent)' }}>FINANCE</span>
         </span>
 
-        {/* Tab nav */}
-        <div style={{ display: 'flex' }}>
-          {TAB_ROUTES.map(({ label, path }) => {
-            const active = location.pathname.startsWith(path)
-            return (
-              <button
-                key={path}
-                onClick={() => navigate(path)}
-                style={{
-                  padding: '6px 12px',
-                  fontFamily: 'var(--font-cond)',
-                  fontSize: 11,
-                  fontWeight: 500,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
-                  background: 'none',
-                  border: 'none',
-                  borderBottom: `2px solid ${active ? 'var(--accent)' : 'transparent'}`,
-                  color: active ? 'var(--accent)' : 'var(--text3)',
-                  cursor: 'pointer',
-                  transition: 'color 0.15s',
-                }}
-                onMouseEnter={e => { if (!active) e.currentTarget.style.color = 'var(--text2)' }}
-                onMouseLeave={e => { if (!active) e.currentTarget.style.color = 'var(--text3)' }}
-              >
-                {label}
-              </button>
-            )
-          })}
-        </div>
+        {/* Tab nav — desktop only */}
+        {!isMobile && (
+          <div style={{ display: 'flex' }}>
+            {TAB_ROUTES.map(({ label, path }) => {
+              const active = location.pathname.startsWith(path)
+              return (
+                <button
+                  key={path}
+                  onClick={() => navigate(path)}
+                  style={{
+                    padding: '6px 12px',
+                    fontFamily: 'var(--font-cond)',
+                    fontSize: 11,
+                    fontWeight: 500,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em',
+                    background: 'none',
+                    border: 'none',
+                    borderBottom: `2px solid ${active ? 'var(--accent)' : 'transparent'}`,
+                    color: active ? 'var(--accent)' : 'var(--text3)',
+                    cursor: 'pointer',
+                    transition: 'color 0.15s',
+                  }}
+                  onMouseEnter={e => { if (!active) e.currentTarget.style.color = 'var(--text2)' }}
+                  onMouseLeave={e => { if (!active) e.currentTarget.style.color = 'var(--text3)' }}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        )}
 
         {/* Right controls */}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button
-            style={{
-              border: '1px solid var(--border2)',
-              background: 'none',
-              color: 'var(--text3)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: 10,
-              cursor: 'pointer',
-              padding: '3px 8px',
-              letterSpacing: '0.05em',
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.color = 'var(--accent)'
-              e.currentTarget.style.borderColor = 'var(--accent)'
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.color = 'var(--text3)'
-              e.currentTarget.style.borderColor = 'var(--border2)'
-            }}
-          >
-            BLUR ◉
-          </button>
+          {!isMobile && (
+            <>
+              <button
+                style={{
+                  border: '1px solid var(--border2)',
+                  background: 'none',
+                  color: 'var(--text3)',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 10,
+                  cursor: 'pointer',
+                  padding: '3px 8px',
+                  letterSpacing: '0.05em',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.color = 'var(--accent)'
+                  e.currentTarget.style.borderColor = 'var(--accent)'
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.color = 'var(--text3)'
+                  e.currentTarget.style.borderColor = 'var(--border2)'
+                }}
+              >
+                BLUR ◉
+              </button>
 
-          <span
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: 10,
-              color: 'var(--text3)',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {dateTime}
-          </span>
+              <span
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 10,
+                  color: 'var(--text3)',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {dateTime}
+              </span>
+            </>
+          )}
 
-          {/* Avatar — click to open user menu */}
-          <button
-            ref={avatarRef}
-            onClick={handleAvatarClick}
-            title={user?.display_name}
-            style={{
-              width: 24,
-              height: 24,
-              background: menuOpen ? 'var(--blue)' : 'var(--blue2)',
-              borderRadius: 2,
-              border: menuOpen ? '1px solid var(--blue)' : '1px solid transparent',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontFamily: 'var(--font-mono)',
-              fontSize: 10,
-              fontWeight: 600,
-              color: 'var(--text)',
-              cursor: 'pointer',
-              padding: 0,
-              transition: 'background 0.15s',
-            }}
-          >
-            {user?.avatar_initials ?? '??'}
-          </button>
+          {/* Avatar — click to open user menu (desktop only; mobile uses BottomNav sheet) */}
+          {!isMobile && (
+            <button
+              ref={avatarRef}
+              onClick={handleAvatarClick}
+              title={user?.display_name}
+              style={{
+                width: 24,
+                height: 24,
+                background: menuOpen ? 'var(--blue)' : 'var(--blue2)',
+                borderRadius: 2,
+                border: menuOpen ? '1px solid var(--blue)' : '1px solid transparent',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 10,
+                fontWeight: 600,
+                color: 'var(--text)',
+                cursor: 'pointer',
+                padding: 0,
+                transition: 'background 0.15s',
+              }}
+            >
+              {user?.avatar_initials ?? '??'}
+            </button>
+          )}
         </div>
       </div>
 
