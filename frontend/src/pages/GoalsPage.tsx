@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, FormEvent } from 'react'
+import { useIsMobile } from '../hooks/useIsMobile'
 import { getAccounts } from '../api/accounts'
 import {
   blockGoalFunds,
@@ -44,6 +45,7 @@ interface FundsFormState {
 }
 
 export default function GoalsPage() {
+  const isMobile = useIsMobile()
   const [tab, setTab] = useState<GoalTab>('active')
   const [activeGoals, setActiveGoals] = useState<Goal[]>([])
   const [completedGoals, setCompletedGoals] = useState<Goal[]>([])
@@ -227,25 +229,25 @@ export default function GoalsPage() {
 
   return (
     <div style={{ minHeight: '100%', background: 'var(--bg)' }}>
-      <div style={topBarStyle}>
-        <div style={{ display: 'flex', gap: 8 }}>
+      <div style={isMobile ? mobileTopBarStyle : topBarStyle}>
+        <div style={{ display: 'flex', gap: isMobile ? 4 : 8 }}>
           <button
             type="button"
             onClick={() => setTab('active')}
             style={tabStyle(tab === 'active')}
           >
-            Active ({activeGoals.length})
+            Active {!isMobile && `(${activeGoals.length})`}
           </button>
           <button
             type="button"
             onClick={() => setTab('completed')}
             style={tabStyle(tab === 'completed')}
           >
-            Completed ({completedGoals.length})
+            Done {!isMobile && `(${completedGoals.length})`}
           </button>
         </div>
-        <Button onClick={openCreateModal} disabled={loading || sourceAccounts.length === 0}>
-          + New Goal
+        <Button onClick={openCreateModal} disabled={loading || sourceAccounts.length === 0} size={isMobile ? 'sm' : undefined}>
+          {isMobile ? '+ Goal' : '+ New Goal'}
         </Button>
       </div>
 
@@ -258,14 +260,15 @@ export default function GoalsPage() {
         </div>
       )}
 
-      <div style={gridShellStyle}>
+      <div style={isMobile ? mobileGridShellStyle : gridShellStyle}>
         {loading ? (
-          <div style={emptyCardStyle}>Loading goals</div>
+          <div style={isMobile ? mobileEmptyCardStyle : emptyCardStyle}>Loading goals</div>
         ) : visibleGoals.length > 0 ? (
           visibleGoals.map((goal) => (
             <GoalCard
               key={goal.id}
               goal={goal}
+              isMobile={isMobile}
               onEdit={tab === 'active' ? openEditModal : undefined}
               onBlock={tab === 'active' ? (item) => openFundsModal('block', item) : undefined}
               onRelease={
@@ -276,18 +279,30 @@ export default function GoalsPage() {
             />
           ))
         ) : (
-          <div style={emptyCardStyle}>
+          <div style={isMobile ? mobileEmptyCardStyle : emptyCardStyle}>
             {tab === 'active' ? 'No active goals' : 'No completed goals'}
           </div>
         )}
 
+        {!isMobile && (
+          <AvailabilityCard
+            rows={accountAvailability}
+            totalBlocked={totalBlocked}
+            loading={loading}
+            accountNames={accountNames}
+          />
+        )}
+      </div>
+
+      {isMobile && (
         <AvailabilityCard
           rows={accountAvailability}
           totalBlocked={totalBlocked}
           loading={loading}
           accountNames={accountNames}
+          isMobile
         />
-      </div>
+      )}
 
       {goalModalMode && (
         <GoalModal
@@ -330,6 +345,7 @@ export default function GoalsPage() {
 
 function GoalCard({
   goal,
+  isMobile,
   onEdit,
   onBlock,
   onRelease,
@@ -337,6 +353,7 @@ function GoalCard({
   onComplete,
 }: {
   goal: Goal
+  isMobile?: boolean
   onEdit?: (goal: Goal) => void
   onBlock?: (goal: Goal) => void
   onRelease?: (goal: Goal) => void
@@ -363,6 +380,107 @@ function GoalCard({
         : goal.status_tone === 'red'
           ? 'var(--red)'
           : 'var(--green)'
+
+  if (isMobile) {
+    return (
+      <div style={mobileGoalCardStyle}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 8, height: 8, background: goal.color_hex, display: 'inline-block', flexShrink: 0 }} />
+              <button
+                type="button"
+                onClick={() => onEdit?.(goal)}
+                style={{
+                  ...mobileGoalNameButtonStyle,
+                  cursor: onEdit ? 'pointer' : 'default',
+                }}
+              >
+                {goal.name}
+              </button>
+            </div>
+            <div style={mobileSourceLabelStyle}>{goal.source_account_name}</div>
+          </div>
+          <span style={badgeStyle(goal.status_tone)}>{goal.status_label}</span>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
+          <div>
+            <div style={mobileMetricValueStyle}>{formatMoney(goal.display_amount_paise)}</div>
+            <div style={mobileMetricTitleStyle}>BLOCKED</div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={mobileMetricValueStyle}>{formatMoney(goal.target_amount_paise)}</div>
+            <div style={mobileMetricTitleStyle}>TARGET</div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ ...mobileMetricValueStyle, color: metricColor }}>
+              {metricValue}
+            </div>
+            <div style={mobileMetricTitleStyle}>{metricLabel}</div>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ height: 4, background: 'var(--bg4)', overflow: 'hidden' }}>
+            <div
+              style={{
+                width: `${Math.min(goal.progress_pct, 100)}%`,
+                height: 4,
+                background:
+                  progressVariant === 'red'
+                    ? 'var(--red)'
+                    : progressVariant === 'amber'
+                      ? 'var(--accent)'
+                      : 'var(--green)',
+              }}
+            />
+          </div>
+        </div>
+
+        <div style={mobileGoalActionsStyle}>
+          {onBlock && (
+            <button
+              type="button"
+              onClick={() => onBlock(goal)}
+              style={mobileActionButtonStyle}
+              title="Block Funds"
+            >
+              ➕
+            </button>
+          )}
+          {onRelease && (
+            <button
+              type="button"
+              onClick={() => onRelease(goal)}
+              style={mobileActionButtonStyle}
+              title="Release"
+            >
+              ➖
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onHistory(goal)}
+            style={mobileActionButtonStyle}
+            title="History"
+          >
+            📋
+          </button>
+          {onComplete && (
+            <button
+              type="button"
+              onClick={() => onComplete(goal)}
+              style={mobileActionButtonStyle}
+              title="Mark Done"
+            >
+              ✓
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div style={goalCardStyle}>
@@ -460,12 +578,58 @@ function AvailabilityCard({
   totalBlocked,
   loading,
   accountNames,
+  isMobile,
 }: {
   rows: GoalAccountAvailability[]
   totalBlocked: number
   loading: boolean
   accountNames: Map<string, string>
+  isMobile?: boolean
 }) {
+  if (isMobile) {
+    return (
+      <div style={mobileGoalCardStyle}>
+        <div style={{ ...sectionHeaderStyle, marginBottom: 10 }}>ACCOUNT BALANCES</div>
+        {loading ? (
+          <div style={{ ...mobileEmptyCardStyle, minHeight: 0, padding: '18px 0' }}>Loading balances</div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {rows.map((row) => (
+                <div key={row.account_id} style={mobileAvailabilityRowStyle}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={mobileAvailabilityNameStyle}>
+                      {accountNames.get(row.account_id) ?? row.account_name}
+                    </div>
+                    <div style={mobileAvailabilityDetailsStyle}>
+                      <span>{formatMoney(row.total_balance_paise)}</span>
+                      <span>−</span>
+                      <span style={{ color: 'var(--accent)' }}>{formatMoney(row.blocked_paise)}</span>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ color: 'var(--green)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+                      {formatMoney(row.available_balance_paise)}
+                    </div>
+                    <div style={{ fontSize: 9, color: 'var(--text3)', marginTop: 2 }}>AVAIL</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={mobileBlockedCalloutStyle}>
+              <div style={mobileBlockedCalloutTextStyle}>
+                Total blocked:{' '}
+                <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>
+                  {formatMoney(totalBlocked)}
+                </span>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div style={goalCardStyle}>
       <div style={{ ...sectionHeaderStyle, marginBottom: 10 }}>Account Available Balances</div>
@@ -532,65 +696,113 @@ function GoalModal({
   onChange: (form: GoalFormState) => void
   onSubmit: (event: FormEvent) => void
 }) {
+  const isMobile = useIsMobile()
   const update = <K extends keyof GoalFormState>(key: K, value: GoalFormState[K]) =>
     onChange({ ...form, [key]: value })
 
   return (
     <div style={modalBackdropStyle} onMouseDown={onClose}>
-      <form style={modalStyle} onSubmit={onSubmit} onMouseDown={(event) => event.stopPropagation()}>
+      <form style={isMobile ? mobileModalStyle : modalStyle} onSubmit={onSubmit} onMouseDown={(event) => event.stopPropagation()}>
         <div style={modalHeaderStyle}>
           <div>{mode === 'create' ? 'New Goal' : 'Edit Goal'}</div>
           <button type="button" onClick={onClose} style={closeButtonStyle}>
             ×
           </button>
         </div>
-        <div style={{ padding: 14 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 150px', gap: 10 }}>
-            <Input
-              label="Name"
-              value={form.name}
-              onChange={(event) => update('name', event.target.value)}
-              required
-            />
-            <Input
-              label="Target Amount"
-              value={form.targetAmount}
-              onChange={(event) => update('targetAmount', event.target.value)}
-              inputMode="decimal"
-              required
-            />
-          </div>
+        <div style={{ padding: 14, overflowY: 'auto', maxHeight: isMobile ? '85vh' : 'auto' }}>
+          {isMobile ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <Input
+                label="Name"
+                value={form.name}
+                onChange={(event) => update('name', event.target.value)}
+                required
+              />
+              <Input
+                label="Target Amount"
+                value={form.targetAmount}
+                onChange={(event) => update('targetAmount', event.target.value)}
+                inputMode="decimal"
+                required
+              />
+              <Select
+                label="Source Account"
+                value={form.sourceAccountId}
+                onChange={(event) => update('sourceAccountId', event.target.value)}
+                required
+              >
+                {sourceAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name}
+                  </option>
+                ))}
+              </Select>
+              <Input
+                label="Target Date"
+                type="date"
+                value={form.targetDate}
+                onChange={(event) => update('targetDate', event.target.value)}
+              />
+              <div>
+                <label style={labelStyle}>Notes</label>
+                <textarea
+                  value={form.notes}
+                  onChange={(event) => update('notes', event.target.value)}
+                  rows={3}
+                  style={textareaStyle}
+                />
+              </div>
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 150px', gap: 10 }}>
+                <Input
+                  label="Name"
+                  value={form.name}
+                  onChange={(event) => update('name', event.target.value)}
+                  required
+                />
+                <Input
+                  label="Target Amount"
+                  value={form.targetAmount}
+                  onChange={(event) => update('targetAmount', event.target.value)}
+                  inputMode="decimal"
+                  required
+                />
+              </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 10, marginTop: 10 }}>
-            <Select
-              label="Source Account"
-              value={form.sourceAccountId}
-              onChange={(event) => update('sourceAccountId', event.target.value)}
-              required
-            >
-              {sourceAccounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.name}
-                </option>
-              ))}
-            </Select>
-            <Input
-              label="Target Date"
-              type="date"
-              value={form.targetDate}
-              onChange={(event) => update('targetDate', event.target.value)}
-            />
-          </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 10, marginTop: 10 }}>
+                <Select
+                  label="Source Account"
+                  value={form.sourceAccountId}
+                  onChange={(event) => update('sourceAccountId', event.target.value)}
+                  required
+                >
+                  {sourceAccounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name}
+                    </option>
+                  ))}
+                </Select>
+                <Input
+                  label="Target Date"
+                  type="date"
+                  value={form.targetDate}
+                  onChange={(event) => update('targetDate', event.target.value)}
+                />
+              </div>
 
-          <div style={{ marginTop: 10 }}>
-            <label style={labelStyle}>Notes</label>
-            <textarea
-              value={form.notes}
-              onChange={(event) => update('notes', event.target.value)}
-              rows={3}
-              style={textareaStyle}
-            />
-          </div>
+              <div style={{ marginTop: 10 }}>
+                <label style={labelStyle}>Notes</label>
+                <textarea
+                  value={form.notes}
+                  onChange={(event) => update('notes', event.target.value)}
+                  rows={3}
+                  style={textareaStyle}
+                />
+              </div>
+            </>
+          )}
 
           {error && <div style={{ ...noticeStyle('error'), marginTop: 10 }}>{error}</div>}
 
@@ -627,49 +839,80 @@ function FundsModal({
   onChange: (form: FundsFormState) => void
   onSubmit: (event: FormEvent) => void
 }) {
+  const isMobile = useIsMobile()
   const update = <K extends keyof FundsFormState>(key: K, value: FundsFormState[K]) =>
     onChange({ ...form, [key]: value })
 
   return (
     <div style={modalBackdropStyle} onMouseDown={onClose}>
-      <form style={modalStyle} onSubmit={onSubmit} onMouseDown={(event) => event.stopPropagation()}>
+      <form style={isMobile ? mobileModalStyle : modalStyle} onSubmit={onSubmit} onMouseDown={(event) => event.stopPropagation()}>
         <div style={modalHeaderStyle}>
           <div>{mode === 'block' ? 'Block Funds' : 'Release Funds'}</div>
           <button type="button" onClick={onClose} style={closeButtonStyle}>
             ×
           </button>
         </div>
-        <div style={{ padding: 14 }}>
+        <div style={{ padding: 14, overflowY: 'auto', maxHeight: isMobile ? '85vh' : 'auto' }}>
           <div style={{ fontFamily: 'var(--font-cond)', fontSize: 11, color: 'var(--text2)', marginBottom: 10 }}>
             {goal.name.toUpperCase()} · {goal.source_account_name.toUpperCase()}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 10 }}>
-            <Input
-              label="Amount"
-              value={form.amount}
-              onChange={(event) => update('amount', event.target.value)}
-              inputMode="decimal"
-              required
-            />
-            <Input
-              label="Date"
-              type="date"
-              value={form.date}
-              onChange={(event) => update('date', event.target.value)}
-              required
-            />
-          </div>
+          {isMobile ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <Input
+                label="Amount"
+                value={form.amount}
+                onChange={(event) => update('amount', event.target.value)}
+                inputMode="decimal"
+                required
+              />
+              <Input
+                label="Date"
+                type="date"
+                value={form.date}
+                onChange={(event) => update('date', event.target.value)}
+                required
+              />
+              <div>
+                <label style={labelStyle}>Notes</label>
+                <textarea
+                  value={form.notes}
+                  onChange={(event) => update('notes', event.target.value)}
+                  rows={3}
+                  style={textareaStyle}
+                />
+              </div>
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 10 }}>
+                <Input
+                  label="Amount"
+                  value={form.amount}
+                  onChange={(event) => update('amount', event.target.value)}
+                  inputMode="decimal"
+                  required
+                />
+                <Input
+                  label="Date"
+                  type="date"
+                  value={form.date}
+                  onChange={(event) => update('date', event.target.value)}
+                  required
+                />
+              </div>
 
-          <div style={{ marginTop: 10 }}>
-            <label style={labelStyle}>Notes</label>
-            <textarea
-              value={form.notes}
-              onChange={(event) => update('notes', event.target.value)}
-              rows={3}
-              style={textareaStyle}
-            />
-          </div>
+              <div style={{ marginTop: 10 }}>
+                <label style={labelStyle}>Notes</label>
+                <textarea
+                  value={form.notes}
+                  onChange={(event) => update('notes', event.target.value)}
+                  rows={3}
+                  style={textareaStyle}
+                />
+              </div>
+            </>
+          )}
 
           {error && <div style={{ ...noticeStyle('error'), marginTop: 10 }}>{error}</div>}
 
@@ -700,16 +943,18 @@ function HistoryModal({
   error: string
   onClose: () => void
 }) {
+  const isMobile = useIsMobile()
+
   return (
     <div style={modalBackdropStyle} onMouseDown={onClose}>
-      <div style={{ ...modalStyle, maxWidth: 560 }} onMouseDown={(event) => event.stopPropagation()}>
+      <div style={isMobile ? mobileHistoryModalStyle : { ...modalStyle, maxWidth: 560 }} onMouseDown={(event) => event.stopPropagation()}>
         <div style={modalHeaderStyle}>
           <div>{goal.name} History</div>
           <button type="button" onClick={onClose} style={closeButtonStyle}>
             ×
           </button>
         </div>
-        <div style={{ padding: 14, maxHeight: '60vh', overflowY: 'auto' }}>
+        <div style={{ padding: 14, maxHeight: isMobile ? '75vh' : '60vh', overflowY: 'auto' }}>
           {error && <div style={{ ...noticeStyle('error'), marginBottom: 10 }}>{error}</div>}
           {loading ? (
             <div style={emptyCardStyle}>Loading history</div>
@@ -1111,4 +1356,146 @@ function historyAmountStyle(eventType: GoalEvent['event_type']): CSSProperties {
     fontSize: 11,
     whiteSpace: 'nowrap',
   }
+}
+
+const mobileTopBarStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  padding: '8px 12px',
+  background: 'var(--bg2)',
+  borderBottom: '1px solid var(--border)',
+  gap: 8,
+}
+
+const mobileGridShellStyle: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 1,
+  background: 'var(--border)',
+}
+
+const mobileEmptyCardStyle: CSSProperties = {
+  background: 'var(--bg2)',
+  minHeight: 100,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontFamily: 'var(--font-cond)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.06em',
+  color: 'var(--text3)',
+  fontSize: 11,
+}
+
+const mobileGoalCardStyle: CSSProperties = {
+  background: 'var(--bg2)',
+  padding: '12px 14px',
+  minHeight: 140,
+}
+
+const mobileGoalNameButtonStyle: CSSProperties = {
+  background: 'none',
+  border: 'none',
+  padding: 0,
+  color: 'var(--text)',
+  fontFamily: 'var(--font-cond)',
+  fontSize: 12,
+  fontWeight: 600,
+  textAlign: 'left',
+  flex: 1,
+  minWidth: 0,
+}
+
+const mobileSourceLabelStyle: CSSProperties = {
+  fontSize: 9,
+  color: 'var(--text3)',
+  fontFamily: 'var(--font-mono)',
+  marginTop: 2,
+}
+
+const mobileMetricValueStyle: CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 12,
+  color: 'var(--text)',
+}
+
+const mobileMetricTitleStyle: CSSProperties = {
+  color: 'var(--text3)',
+  fontSize: 8,
+  fontFamily: 'var(--font-cond)',
+  marginTop: 2,
+}
+
+const mobileGoalActionsStyle: CSSProperties = {
+  display: 'flex',
+  gap: 6,
+  marginTop: 8,
+  justifyContent: 'center',
+}
+
+const mobileActionButtonStyle: CSSProperties = {
+  background: 'var(--bg3)',
+  border: '1px solid var(--border2)',
+  color: 'var(--text2)',
+  padding: '6px 8px',
+  fontSize: 14,
+  cursor: 'pointer',
+  borderRadius: 2,
+  flex: 1,
+}
+
+const mobileAvailabilityRowStyle: CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'flex-start',
+  gap: 12,
+  paddingBottom: 10,
+  borderBottom: '1px solid var(--border)',
+}
+
+const mobileAvailabilityNameStyle: CSSProperties = {
+  fontFamily: 'var(--font-cond)',
+  fontSize: 11,
+  fontWeight: 600,
+  color: 'var(--text)',
+}
+
+const mobileAvailabilityDetailsStyle: CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 9,
+  color: 'var(--text3)',
+  marginTop: 3,
+  display: 'flex',
+  gap: 4,
+}
+
+const mobileBlockedCalloutStyle: CSSProperties = {
+  marginTop: 10,
+  padding: 8,
+  background: 'var(--bg3)',
+  borderLeft: '2px solid var(--accent)',
+}
+
+const mobileBlockedCalloutTextStyle: CSSProperties = {
+  fontSize: 9,
+  color: 'var(--text2)',
+  fontFamily: 'var(--font-cond)',
+  letterSpacing: '0.04em',
+}
+
+const mobileModalStyle: CSSProperties = {
+  width: '100vw',
+  maxHeight: '95vh',
+  background: 'var(--bg2)',
+  border: '1px solid var(--border2)',
+  borderRadius: 0,
+}
+
+const mobileHistoryModalStyle: CSSProperties = {
+  width: '100vw',
+  maxHeight: '90vh',
+  background: 'var(--bg2)',
+  border: '1px solid var(--border2)',
+  borderRadius: 0,
 }

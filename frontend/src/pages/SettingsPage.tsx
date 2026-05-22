@@ -6,6 +6,7 @@ import Button from '../components/Button';
 import Input from '../components/Input';
 import Select from '../components/Select';
 import { useAuth } from '../contexts/AuthContext';
+import { useIsMobile } from '../hooks/useIsMobile';
 import type { CategoryNode, CategoryPayload, CategoryType } from '../types/category';
 import type { CreateInstrumentPayload, Instrument, InstrumentType } from '../types/instrument';
 
@@ -101,6 +102,7 @@ const INSTRUMENT_TYPES: Array<{ value: InstrumentType; label: string }> = [
 
 export default function SettingsPage() {
   const { user } = useAuth();
+  const isMobile = useIsMobile();
 
   const [view, setView] = useState<SettingsView>('overview');
   const [categories, setCategories] = useState<CategoryNode[]>([]);
@@ -375,7 +377,7 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <div style={layoutStyle}>
+      <div style={layoutStyle(isMobile)}>
         <section style={profileCardStyle}>
           <div style={sectionHeaderStyle}>Primary User</div>
           <div style={profileBodyStyle}>
@@ -399,7 +401,7 @@ export default function SettingsPage() {
           {view === 'overview' ? (
             <>
               <div style={sectionHeaderStyle}>Settings Grid</div>
-              <div style={tileGridStyle}>
+              <div style={tileGridStyle(isMobile)}>
                 {SETTING_TILES.map((tile, index) => {
                   const active = tile.key === view;
                   const actionable = !tile.disabled && tile.key !== 'placeholder';
@@ -452,7 +454,7 @@ export default function SettingsPage() {
                 ) : flatCategories.length === 0 ? (
                   <div style={emptyStatePanelStyle}>No categories found.</div>
                 ) : (
-                  <div style={splitPanelGridStyle}>
+                  <div style={splitPanelGridStyle(isMobile)}>
                     <CategoryGroupPanel
                       title="Expense Categories"
                       accent="var(--accent)"
@@ -497,7 +499,7 @@ export default function SettingsPage() {
                 ) : instruments.length === 0 ? (
                   <div style={emptyStatePanelStyle}>No instruments found.</div>
                 ) : (
-                  <div style={instrumentPanelGridStyle}>
+                  <div style={instrumentPanelGridStyle(isMobile)}>
                     {groupedInstruments.map(([type, items]) => (
                       <InstrumentGroupPanel
                         key={type}
@@ -517,7 +519,7 @@ export default function SettingsPage() {
 
       {categoryModalOpen ? (
         <div style={modalBackdropStyle} onMouseDown={closeCategoryModal}>
-          <form style={modalStyle} onSubmit={handleCategorySubmit} onMouseDown={(event) => event.stopPropagation()}>
+          <form style={modalStyle(isMobile)} onSubmit={handleCategorySubmit} onMouseDown={(event) => event.stopPropagation()}>
             <div style={modalHeaderStyle}>
               <div>
                 <div style={eyebrowStyle}>{editingCategory ? 'Edit Category' : 'New Category'}</div>
@@ -530,7 +532,7 @@ export default function SettingsPage() {
               </button>
             </div>
 
-            <div style={formGridStyle}>
+            <div style={formGridStyle(isMobile)}>
               <Input
                 label="Name"
                 value={categoryForm.name}
@@ -595,7 +597,7 @@ export default function SettingsPage() {
 
       {instrumentModalOpen ? (
         <div style={modalBackdropStyle} onMouseDown={closeInstrumentModal}>
-          <form style={{ ...modalStyle, maxWidth: 720 }} onSubmit={handleInstrumentSubmit} onMouseDown={(event) => event.stopPropagation()}>
+          <form style={{ ...modalStyle(isMobile), maxWidth: 720 }} onSubmit={handleInstrumentSubmit} onMouseDown={(event) => event.stopPropagation()}>
             <div style={modalHeaderStyle}>
               <div>
                 <div style={eyebrowStyle}>{editingInstrument ? 'Edit Instrument' : 'New Instrument'}</div>
@@ -608,7 +610,7 @@ export default function SettingsPage() {
               </button>
             </div>
 
-            <div style={formGridStyle}>
+            <div style={formGridStyle(isMobile)}>
               <Input
                 label="Name"
                 value={instrumentForm.name}
@@ -952,12 +954,12 @@ const inlineActionButtonStyle: CSSProperties = {
   letterSpacing: '0.08em',
 };
 
-const layoutStyle: CSSProperties = {
+const layoutStyle = (isMobile: boolean): CSSProperties => ({
   display: 'grid',
-  gridTemplateColumns: '340px minmax(0, 1fr)',
+  gridTemplateColumns: isMobile ? '1fr' : '340px minmax(0, 1fr)',
   gap: 14,
   alignItems: 'start',
-};
+});
 
 const profileCardStyle: CSSProperties = {
   background: 'var(--bg2)',
@@ -1058,12 +1060,12 @@ const metricValueStyle: CSSProperties = {
   wordBreak: 'break-word',
 };
 
-const tileGridStyle: CSSProperties = {
+const tileGridStyle = (isMobile: boolean): CSSProperties => ({
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+  gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(280px, 1fr))',
   gap: 1,
   background: 'var(--border)',
-};
+});
 
 const tileStyle: CSSProperties = {
   position: 'relative',
@@ -1191,17 +1193,17 @@ const metricPillValueStyle: CSSProperties = {
   lineHeight: 1.1,
 };
 
-const splitPanelGridStyle: CSSProperties = {
+const splitPanelGridStyle = (isMobile: boolean): CSSProperties => ({
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
+  gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(360px, 1fr))',
   gap: 12,
-};
+});
 
-const instrumentPanelGridStyle: CSSProperties = {
+const instrumentPanelGridStyle = (isMobile: boolean): CSSProperties => ({
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+  gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(320px, 1fr))',
   gap: 12,
-};
+});
 
 const dataPanelStyle: CSSProperties = {
   border: '1px solid var(--border)',
@@ -1297,14 +1299,14 @@ const modalBackdropStyle: CSSProperties = {
   zIndex: 1000,
 };
 
-const modalStyle: CSSProperties = {
-  width: '100%',
+const modalStyle = (isMobile: boolean): CSSProperties => ({
+  width: isMobile ? 'calc(100% - 32px)' : '100%',
   maxWidth: 560,
   background: 'var(--bg2)',
   border: '1px solid var(--border2)',
   boxShadow: '0 18px 40px rgba(0, 0, 0, 0.45)',
   padding: 16,
-};
+});
 
 const modalHeaderStyle: CSSProperties = {
   display: 'flex',
@@ -1332,11 +1334,11 @@ const modalCloseButtonStyle: CSSProperties = {
   lineHeight: 1,
 };
 
-const formGridStyle: CSSProperties = {
+const formGridStyle = (isMobile: boolean): CSSProperties => ({
   display: 'grid',
-  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))',
   gap: 12,
-};
+});
 
 const fieldLabelStyle: CSSProperties = {
   fontFamily: 'var(--font-cond)',

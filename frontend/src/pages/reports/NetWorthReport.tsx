@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import type { CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
+import { useIsMobile } from '../../hooks/useIsMobile'
 import {
   ResponsiveContainer,
   AreaChart,
@@ -167,6 +168,7 @@ function BalanceGroup({ group }: { group: AccountGroup }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function NetWorthReport() {
+  const isMobile = useIsMobile()
   const [period, setPeriod] = useState<PeriodKey>('1y')
   const [accountsData, setAccountsData] = useState<AccountsResponse | null>(null)
   const [histories, setHistories] = useState<Map<string, BalanceHistoryPoint[]>>(new Map())
@@ -258,7 +260,7 @@ export default function NetWorthReport() {
       </div>
 
       {/* Summary strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 1, background: 'var(--border)', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 1, background: 'var(--border)', borderBottom: '1px solid var(--border)' }}>
         {[
           { label: 'Net Worth', value: netWorth, color: netWorth >= 0 ? 'var(--green)' : 'var(--red)' },
           { label: 'Total Assets', value: totalAssets, color: 'var(--blue)' },
@@ -337,7 +339,7 @@ export default function NetWorthReport() {
       </div>
 
       {/* Balance Sheet + Allocation — two-column */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, background: 'var(--border)', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 1, background: 'var(--border)', borderBottom: '1px solid var(--border)' }}>
 
         {/* Assets */}
         <div style={{ background: 'var(--bg2)' }}>
@@ -355,7 +357,7 @@ export default function NetWorthReport() {
         </div>
 
         {/* Liabilities + Allocation */}
-        <div style={{ background: 'var(--bg2)', borderLeft: '1px solid var(--border)' }}>
+        <div style={{ background: 'var(--bg2)', borderLeft: isMobile ? 'none' : '1px solid var(--border)', borderTop: isMobile ? '1px solid var(--border)' : 'none' }}>
           <div style={sHd}>
             Liabilities
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--red)', letterSpacing: 0, textTransform: 'none' }}>{formatMoney(totalLiabilities, 'INR', true)}</span>

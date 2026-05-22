@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import type { CSSProperties } from 'react'
+import { useIsMobile } from '../../hooks/useIsMobile'
 import {
   ResponsiveContainer,
   BarChart,
@@ -213,6 +214,7 @@ function PeriodTabs<T extends string>({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function InvestmentsReport() {
+  const isMobile = useIsMobile()
   const [holdings, setHoldings] = useState<Holding[]>([])
   const [summary, setSummary] = useState<HoldingsSummary | null>(null)
   const [history, setHistory] = useState<PortfolioHistoryPoint[]>([])
@@ -413,7 +415,7 @@ export default function InvestmentsReport() {
       </div>
 
       {/* ── Section 1: Summary strip ── */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 20 }}>
         <MetricCard
           label="Total Value"
           value={summary?.total_current_value_paise != null ? formatMoney(summary.total_current_value_paise) : '--'}
@@ -528,7 +530,7 @@ export default function InvestmentsReport() {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
+            gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)',
             gap: 0,
             borderBottom: '1px solid var(--border)',
             marginBottom: 16,
@@ -538,7 +540,7 @@ export default function InvestmentsReport() {
           <AllocationDonut
             title="Asset Type"
             segments={typeSegments}
-            style={{ borderBottom: 'none', marginBottom: 0, paddingBottom: 0, paddingRight: 16 }}
+            style={{ borderBottom: 'none', marginBottom: 0, paddingBottom: 0, paddingRight: isMobile ? 0 : 16, borderRight: isMobile ? 'none' : '1px solid var(--border)' }}
           />
           <AllocationDonut
             title="Sector"
@@ -547,16 +549,16 @@ export default function InvestmentsReport() {
               borderBottom: 'none',
               marginBottom: 0,
               paddingBottom: 0,
-              borderLeft: '1px solid var(--border)',
-              borderRight: '1px solid var(--border)',
-              paddingLeft: 16,
-              paddingRight: 16,
+              borderLeft: isMobile ? 'none' : '1px solid var(--border)',
+              borderRight: isMobile ? 'none' : '1px solid var(--border)',
+              paddingLeft: isMobile ? 0 : 16,
+              paddingRight: isMobile ? 0 : 16,
             }}
           />
           <AllocationDonut
             title="Geography"
             segments={geoSegments}
-            style={{ borderBottom: 'none', marginBottom: 0, paddingBottom: 0, paddingLeft: 16 }}
+            style={{ borderBottom: 'none', marginBottom: 0, paddingBottom: 0, paddingLeft: isMobile ? 0 : 16, borderLeft: isMobile ? 'none' : '1px solid var(--border)' }}
           />
         </div>
 

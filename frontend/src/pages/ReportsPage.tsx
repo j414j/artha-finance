@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom'
+import { useIsMobile } from '../hooks/useIsMobile'
 
 interface ReportCard {
   route: string
@@ -79,9 +80,10 @@ const REPORT_CARDS: ReportCard[] = [
 
 export default function ReportsPage() {
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
 
   return (
-    <div style={{ padding: '24px 28px', background: 'var(--bg)', minHeight: '100%' }}>
+    <div style={{ padding: isMobile ? '16px' : '24px 28px', background: 'var(--bg)', minHeight: '100%' }}>
       {/* Page header */}
       <div style={{ marginBottom: 24 }}>
         <div
@@ -112,7 +114,7 @@ export default function ReportsPage() {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+          gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(300px, 1fr))',
           gap: 1,
           background: 'var(--border)',
         }}
@@ -123,13 +125,13 @@ export default function ReportsPage() {
             onClick={() => card.available && navigate(card.route)}
             style={{
               background: 'var(--bg2)',
-              padding: '18px 20px',
+              padding: isMobile ? '20px 18px' : '18px 20px',
               cursor: card.available ? 'pointer' : 'default',
               transition: 'background 0.15s',
               opacity: card.available ? 1 : 0.6,
             }}
             onMouseEnter={(e) => {
-              if (card.available)
+              if (card.available && !isMobile)
                 (e.currentTarget as HTMLDivElement).style.background = 'var(--bg3)'
             }}
             onMouseLeave={(e) => {
@@ -147,13 +149,13 @@ export default function ReportsPage() {
             >
               <div
                 style={{
-                  width: 32,
-                  height: 32,
+                  width: isMobile ? 40 : 32,
+                  height: isMobile ? 40 : 32,
                   background: card.available ? 'var(--bg4)' : 'var(--bg3)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontSize: 16,
+                  fontSize: isMobile ? 18 : 16,
                   color: card.available ? 'var(--accent)' : 'var(--text3)',
                   borderRadius: 2,
                   flexShrink: 0,

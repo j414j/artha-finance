@@ -2,10 +2,12 @@ import { type FormEvent, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
+import { useIsMobile } from '../hooks/useIsMobile'
 
 export default function LoginPage() {
   const { user, loading, login } = useAuth()
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -33,13 +35,15 @@ export default function LoginPage() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        height: '100vh',
+        minHeight: '100vh',
         background: 'var(--bg)',
+        padding: isMobile ? '16px' : '0',
       }}
     >
       <div
         style={{
-          width: 360,
+          width: isMobile ? '100%' : 360,
+          maxWidth: 360,
           background: 'var(--bg2)',
           border: '1px solid var(--border2)',
         }}

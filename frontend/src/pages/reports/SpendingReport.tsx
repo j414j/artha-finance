@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
+import { useIsMobile } from '../../hooks/useIsMobile'
 import {
   ResponsiveContainer,
   BarChart,
@@ -246,6 +247,7 @@ function ChartTooltip({ active, payload, label }: {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function SpendingReport() {
+  const isMobile = useIsMobile()
   const [period, setPeriod] = useState<PeriodKey>('this_fy')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
@@ -333,7 +335,7 @@ export default function SpendingReport() {
       </div>
 
       {/* Summary strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 1, background: 'var(--border)', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 1, background: 'var(--border)', borderBottom: '1px solid var(--border)' }}>
         {[
           { label: 'Total Spend', value: formatMoney(totalSpend), color: 'var(--red)', sub: rangeLabel(range.from, range.to) || '—' },
           { label: 'Avg / Month', value: avgMonthly > 0 ? formatMoney(avgMonthly) : '—', color: 'var(--text)', sub: `${monthCount} month${monthCount !== 1 ? 's' : ''}` },
@@ -356,7 +358,7 @@ export default function SpendingReport() {
       )}
 
       {/* Category breakdown — bar + table */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 260px', gap: 1, background: 'var(--border)', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 260px', gap: 1, background: 'var(--border)', borderBottom: '1px solid var(--border)' }}>
         <div style={{ background: 'var(--bg2)' }}>
           <div style={sHd}>
             Spending by Category
@@ -397,7 +399,7 @@ export default function SpendingReport() {
         </div>
 
         {/* Side table */}
-        <div style={{ background: 'var(--bg2)', borderLeft: '1px solid var(--border)' }}>
+        <div style={{ background: 'var(--bg2)', borderLeft: isMobile ? 'none' : '1px solid var(--border)', borderTop: isMobile ? '1px solid var(--border)' : 'none' }}>
           <div style={sHd}>Category Table</div>
           <div style={{ padding: '8px 0' }}>
             {categories.length === 0 ? (

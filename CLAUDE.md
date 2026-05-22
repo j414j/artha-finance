@@ -83,7 +83,23 @@ Key decisions: multi-user from Phase 1 with per-user private data (all domain ta
   - [ ] BudgetReport — stub ("Coming Soon")
   - [ ] GoalsReport — stub ("Coming Soon")
   - [ ] Backend /api/v1/reports/* endpoints — not implemented (CashFlow/Investments reports use existing APIs directly)
-- [ ] Phase 9 — not started
+- [~] Phase 9 — in progress
+  - [x] Mobile shell — responsive AppShell with bottom nav bar (5 primary tabs + "More" slide-up sheet), useIsMobile hook (768px breakpoint), mobile topbar strips tabs/avatar
+  - [x] Dashboard — mobile card stack (net worth hero, assets/liabilities 2-col, cash flow 3-col, NW chart, budget status, tx list, CF bars)
+  - [x] LoginPage — full-width form card on mobile
+  - [x] ReportsPage — single-column card grid on mobile
+  - [x] FxRatesPage — stacked layout, form collapses to 2-col grid, table → list rows, sidebar moves below
+  - [x] AccountsPage — metrics 2×2, account groups stack vertically, modal full-width
+  - [x] InvestmentsPage — metrics 2×2, donut chart full-width, holdings → list rows, modals full-width
+  - [x] BudgetPage — summary 2×2, budget items list adapts, sidebar moves below, modals full-width
+  - [x] GoalsPage — goal cards single column, action buttons compact, modals bottom sheet
+  - [x] TransactionsPage — filter sidebar → bottom sheet, summary 2×2, table → list rows, modals bottom sheet
+  - [x] SettingsPage — tiles single column, category/instrument panels stack, forms vertical
+  - [x] CashFlowReport — summary 2-col, Sankey + panel stack, charts full-width
+  - [x] NetWorthReport — summary 2-col, balance sheet stacks vertically
+  - [x] SpendingReport — summary 2-col, all panels stack
+  - [x] InvestmentsReport — metrics 2-col, allocation single column
+  - [ ] Polish & testing — gestures, safe area insets, loading states review
 
 ## graphify
 

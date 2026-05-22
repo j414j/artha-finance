@@ -11,6 +11,7 @@ import Button from "../components/Button";
 import Input from "../components/Input";
 import type { FxRate, LatestFxRate } from "../types/fx_rate";
 import { formatDateDisplay } from "../utils/format";
+import { useIsMobile } from "../hooks/useIsMobile";
 
 interface FxFormState {
   fromCurrency: string;
@@ -31,6 +32,7 @@ function blankForm(): FxFormState {
 }
 
 export default function FxRatesPage() {
+  const isMobile = useIsMobile();
   const [rates, setRates] = useState<FxRate[]>([]);
   const [latest, setLatest] = useState<LatestFxRate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -115,25 +117,26 @@ export default function FxRatesPage() {
     <div style={{ minHeight: "100%", background: "var(--bg)" }}>
       <div
         style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(0, 1fr) 300px",
+          display: isMobile ? "flex" : "grid",
+          flexDirection: isMobile ? "column" : undefined,
+          gridTemplateColumns: isMobile ? undefined : "minmax(0, 1fr) 300px",
           gap: 1,
           minHeight: "100%",
           background: "var(--border)",
         }}
       >
         <main style={{ background: "var(--bg2)", minWidth: 0 }}>
-          <SummaryStrip latest={latest} historyCount={rates.length} />
+          <SummaryStrip latest={latest} historyCount={rates.length} isMobile={isMobile} />
 
           <form
             onSubmit={handleSubmit}
             style={{
               display: "grid",
-              gridTemplateColumns: "110px 110px 1fr 140px 1.2fr 130px",
-              gap: 8,
+              gridTemplateColumns: isMobile ? "1fr 1fr" : "110px 110px 1fr 140px 1.2fr 130px",
+              gap: isMobile ? 8 : 8,
               padding: 10,
               borderBottom: "1px solid var(--border)",
-              alignItems: "end",
+              alignItems: isMobile ? "start" : "end",
             }}
           >
             <Input
@@ -168,14 +171,18 @@ export default function FxRatesPage() {
               onChange={(event) => update("date", event.target.value)}
               required
             />
-            <Input
-              label="Notes"
-              value={form.notes}
-              onChange={(event) => update("notes", event.target.value)}
-            />
-            <Button type="submit" disabled={saving}>
-              {saving ? "Saving" : "Record Rate"}
-            </Button>
+            <div style={{ gridColumn: isMobile ? "1 / -1" : undefined }}>
+              <Input
+                label="Notes"
+                value={form.notes}
+                onChange={(event) => update("notes", event.target.value)}
+              />
+            </div>
+            <div style={{ gridColumn: isMobile ? "1 / -1" : undefined }}>
+              <Button type="submit" disabled={saving} style={{ width: "100%" }}>
+                {saving ? "Saving" : "Record Rate"}
+              </Button>
+            </div>
           </form>
 
           {formError && <Notice kind="error">{formError}</Notice>}
@@ -201,6 +208,7 @@ export default function FxRatesPage() {
               rates={rates}
               deletingId={deletingId}
               onDelete={handleDelete}
+              isMobile={isMobile}
             />
           )}
         </main>
@@ -208,7 +216,8 @@ export default function FxRatesPage() {
         <aside
           style={{
             background: "var(--bg2)",
-            borderLeft: "1px solid var(--border)",
+            borderLeft: isMobile ? "none" : "1px solid var(--border)",
+            borderTop: isMobile ? "1px solid var(--border)" : "none",
             minWidth: 0,
           }}
         >
@@ -230,7 +239,7 @@ export default function FxRatesPage() {
                         rate: formatRateInput(rate.rate),
                       })
                     }
-                    style={pairButtonStyle}
+                    style={isMobile ? mobilePairButtonStyle : pairButtonStyle}
                   >
                     <span style={{ color: "var(--text2)" }}>{pair}</span>
                     <span style={{ color: "var(--text)", fontFamily: "var(--font-mono)" }}>
@@ -253,15 +262,17 @@ export default function FxRatesPage() {
 function SummaryStrip({
   latest,
   historyCount,
+  isMobile,
 }: {
   latest: LatestFxRate[];
   historyCount: number;
+  isMobile: boolean;
 }) {
   return (
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+        gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(3, minmax(0, 1fr))",
         gap: 1,
         background: "var(--border)",
         borderBottom: "1px solid var(--border)",
@@ -305,11 +316,94 @@ function FxRateTable({
   rates,
   deletingId,
   onDelete,
+  isMobile,
 }: {
   rates: FxRate[];
   deletingId: string | null;
   onDelete: (rate: FxRate) => void;
+  isMobile: boolean;
 }) {
+  if (isMobile) {
+    return (
+      <div style={{ padding: "12px" }}>
+        {rates.map((rate) => (
+          <div
+            key={rate.id}
+            style={{
+              borderBottom: "1px solid var(--border)",
+              paddingBottom: 12,
+              marginBottom: 12,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 6,
+              }}
+            >
+              <div
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 12,
+                  color: "var(--text)",
+                  fontWeight: 600,
+                }}
+              >
+                {rate.from_currency}/{rate.to_currency}
+              </div>
+              <div
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 12,
+                  color: "var(--text)",
+                }}
+              >
+                {formatRateInput(rate.rate)}
+              </div>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                fontSize: 11,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "center",
+                }}
+              >
+                <span style={{ color: "var(--text3)", fontFamily: "var(--font-mono)" }}>
+                  {formatDateDisplay(rate.date)}
+                </span>
+                <span
+                  style={{
+                    color: rate.notes ? "var(--text2)" : "var(--text3)",
+                  }}
+                >
+                  {rate.notes || "-"}
+                </span>
+              </div>
+              <button
+                type="button"
+                disabled={deletingId === rate.id}
+                onClick={() => onDelete(rate)}
+                style={deleteButtonStyle}
+              >
+                {deletingId === rate.id ? "..." : "Del"}
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div style={{ overflowX: "auto" }}>
       <table style={{ width: "100%", minWidth: 760, borderCollapse: "collapse" }}>
@@ -553,4 +647,18 @@ const pairButtonStyle: CSSProperties = {
   textAlign: "left",
   fontFamily: "var(--font-cond)",
   fontSize: 11,
+};
+
+const mobilePairButtonStyle: CSSProperties = {
+  width: "100%",
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 8,
+  padding: "10px 10px",
+  border: "1px solid var(--border)",
+  background: "var(--bg3)",
+  cursor: "pointer",
+  fontFamily: "var(--font-cond)",
+  fontSize: 12,
 };

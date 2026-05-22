@@ -8,6 +8,7 @@ import AllocationDonut from '../components/AllocationDonut';
 import HoldingDrilldown from '../components/HoldingDrilldown';
 import Input from '../components/Input';
 import Select from '../components/Select';
+import { useIsMobile } from '../hooks/useIsMobile';
 import type { InstrumentType } from '../types/instrument';
 import type { Holding, HoldingsSummary } from '../types/investment';
 import {
@@ -94,6 +95,7 @@ interface PriceFormState {
 // ---------------------------------------------------------------------------
 
 export default function InvestmentsPage() {
+  const isMobile = useIsMobile();
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [summary, setSummary] = useState<HoldingsSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -261,6 +263,126 @@ export default function InvestmentsPage() {
   };
 
   // ---------- Render ----------
+
+  if (isMobile) {
+    return (
+      <div style={{ minHeight: '100vh', background: 'var(--bg1)', padding: 12 }}>
+        <SummaryStripMobile summary={summary} />
+
+        {/* Filter bar */}
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            marginBottom: 12,
+            padding: '8px 12px',
+            background: 'var(--bg2)',
+            border: '1px solid var(--border)',
+          }}
+        >
+          <Select
+            label="Account"
+            value={filterAccountId}
+            onChange={(e) => setFilterAccountId(e.target.value)}
+          >
+            <option value="">All accounts</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>{a.name}</option>
+            ))}
+          </Select>
+          <Button onClick={openInstrumentModal} style={{ width: '100%' }}>+ Add Instrument</Button>
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div style={errorBannerStyle}>
+            {error}
+            <button type="button" style={retryButtonStyle} onClick={() => void loadData()}>
+              Retry
+            </button>
+          </div>
+        )}
+
+        {/* Holdings list */}
+        {loading ? (
+          <EmptyPanel label="Loading holdings…" />
+        ) : holdings.length === 0 ? (
+          <EmptyPanel label="No holdings — add an instrument then log investment transactions" />
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {groupedHoldings.map(([type, hs]) => {
+              const groupValue = hs.reduce((s, h) => s + allocationValue(h), 0);
+              return (
+                <div key={`grp-${type}`}>
+                  <div
+                    style={{
+                      padding: '8px 10px',
+                      fontFamily: 'var(--font-cond)',
+                      fontSize: 10,
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.08em',
+                      background: 'var(--bg3)',
+                      borderBottom: '1px solid var(--border)',
+                    }}
+                  >
+                    <span style={{ color: TYPE_COLORS[type] ?? 'var(--text3)' }}>
+                      {TYPE_LABELS[type] ?? type}
+                    </span>
+                    <span
+                      style={{
+                        marginLeft: 8,
+                        fontWeight: 400,
+                        color: 'var(--text3)',
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: 9,
+                      }}
+                    >
+                      {formatMoney(groupValue)}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {hs.map((h) => (
+                      <HoldingCardMobile
+                        key={`${h.instrument_id}-${h.account_id}`}
+                        holding={h}
+                        onUpdatePrice={openPriceModal}
+                        onDrilldown={setDrilldownHolding}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Donuts */}
+        {holdings.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <AllocationDonut title="Allocation by Type" segments={donutSegments} />
+            <AllocationDonut title="Allocation by Sector" segments={sectorSegments} />
+            <AllocationDonut title="Allocation by Geography" segments={geographySegments} />
+          </div>
+        )}
+
+        <div
+          style={{
+            padding: '10px 12px',
+            fontFamily: 'var(--font-cond)',
+            fontSize: 10,
+            textTransform: 'uppercase',
+            letterSpacing: '0.1em',
+            color: 'var(--text3)',
+            marginTop: 12,
+          }}
+        >
+          {!loading && `${holdings.length} holding${holdings.length !== 1 ? 's' : ''}`}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg1)', padding: 20 }}>
@@ -447,6 +569,77 @@ export default function InvestmentsPage() {
 // ---------------------------------------------------------------------------
 // Summary strip
 // ---------------------------------------------------------------------------
+
+function SummaryStripMobile({ summary }: { summary: HoldingsSummary | null }) {
+  const pnl = summary?.total_unrealised_pnl_paise ?? null;
+  const pct = summary?.total_unrealised_pnl_pct ?? null;
+
+  const unrealisedLabel = pnl !== null
+    ? `${formatMoney(pnl)}  ${fmtPct(pct)}`
+    : '--';
+
+  const metrics = [
+    {
+      label: 'Invested',
+      value: summary ? formatMoney(summary.total_invested_paise) : '--',
+    },
+    {
+      label: 'Current Value',
+      value: summary?.total_current_value_paise != null
+        ? formatMoney(summary.total_current_value_paise)
+        : '--',
+    },
+    {
+      label: 'Unrealised P&L',
+      value: unrealisedLabel,
+      valueColor: pnl !== null ? pnlColor(pnl) : 'var(--text3)',
+    },
+    {
+      label: 'Realised P&L',
+      value: summary ? formatMoney(summary.total_realised_pnl_paise) : '--',
+      valueColor: summary ? pnlColor(summary.total_realised_pnl_paise) : 'var(--text3)',
+    },
+  ];
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+      {metrics.map((m) => (
+        <div
+          key={m.label}
+          style={{
+            background: 'var(--bg2)',
+            border: '1px solid var(--border)',
+            padding: '10px 12px',
+          }}
+        >
+          <div
+            style={{
+              fontFamily: 'var(--font-cond)',
+              fontSize: 9,
+              textTransform: 'uppercase',
+              letterSpacing: '0.1em',
+              color: 'var(--text3)',
+              marginBottom: 4,
+            }}
+          >
+            {m.label}
+          </div>
+          <div
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 14,
+              color: m.valueColor || 'var(--text)',
+              lineHeight: 1.1,
+              wordBreak: 'break-word',
+            }}
+          >
+            {m.value}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function SummaryStrip({ summary }: { summary: HoldingsSummary | null }) {
   const pnl = summary?.total_unrealised_pnl_paise ?? null;
@@ -661,6 +854,95 @@ function HoldingRow({
         </button>
       </Td>
     </tr>
+  );
+}
+
+function HoldingCardMobile({
+  holding: h,
+  onUpdatePrice,
+  onDrilldown,
+}: {
+  holding: Holding;
+  onUpdatePrice: (h: Holding) => void;
+  onDrilldown: (h: Holding) => void;
+}) {
+  return (
+    <div
+      style={{
+        padding: '12px 10px',
+        background: 'var(--bg2)',
+        border: '1px solid var(--border)',
+        borderRadius: 2,
+        cursor: 'pointer',
+      }}
+      onClick={() => onDrilldown(h)}
+    >
+      {/* Name + Type on first line */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
+        <div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text)', fontWeight: 600 }}>
+            {h.instrument_name}
+          </div>
+          {h.instrument_ticker && (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text3)', marginTop: 1 }}>
+              {h.instrument_ticker}
+            </div>
+          )}
+        </div>
+        <span
+          style={{
+            fontFamily: 'var(--font-cond)',
+            fontSize: 8,
+            textTransform: 'uppercase',
+            letterSpacing: '0.08em',
+            color: TYPE_COLORS[h.instrument_type] ?? 'var(--text3)',
+            border: `1px solid ${TYPE_COLORS[h.instrument_type] ?? 'var(--border)'}`,
+            padding: '1px 4px',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {TYPE_LABELS[h.instrument_type] ?? h.instrument_type}
+        </span>
+      </div>
+
+      {/* Account info */}
+      <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 8 }}>
+        {h.account_name}
+      </div>
+
+      {/* Value and P&L */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+        <div>
+          <div style={{ fontSize: 9, color: 'var(--text3)' }}>Current Value</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text)' }}>
+            <MoneyWithInr
+              amount={h.current_value_paise}
+              currency={h.instrument_currency}
+              inrAmount={h.current_value_inr_paise}
+            />
+          </div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: 9, color: 'var(--text3)' }}>P&L</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: pnlColor(h.unrealised_pnl_inr_paise) }}>
+            {h.unrealised_pnl_inr_paise != null ? formatMoney(h.unrealised_pnl_inr_paise) : '--'}
+          </div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: pnlColor(h.unrealised_pnl_pct) }}>
+            {fmtPct(h.unrealised_pnl_pct)}
+          </div>
+        </div>
+      </div>
+
+      {/* Price button */}
+      <button
+        type="button"
+        title="Update price"
+        onClick={(e) => { e.stopPropagation(); onUpdatePrice(h); }}
+        style={{ ...actionBtnStyle, width: '100%', marginTop: 8 }}
+      >
+        ₹ Update Price
+      </button>
+    </div>
   );
 }
 

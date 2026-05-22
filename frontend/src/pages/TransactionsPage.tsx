@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { getAccounts } from "../api/accounts";
 import { getCategories } from "../api/categories";
 import { getLatestFxRates } from "../api/fx_rates";
@@ -118,6 +119,7 @@ interface SplitFormState {
 }
 
 export default function TransactionsPage() {
+  const isMobile = useIsMobile();
   const [searchParams] = useSearchParams();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<CategoryNode[]>([]);
@@ -153,6 +155,7 @@ export default function TransactionsPage() {
   const [bulkCategoryId, setBulkCategoryId] = useState("");
   const [bulkWorking, setBulkWorking] = useState(false);
   const [bulkEntryMode, setBulkEntryMode] = useState(false);
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
 
   const flatCategories = useMemo(() => flattenCategories(categories), [categories]);
 
@@ -365,6 +368,191 @@ export default function TransactionsPage() {
     }
   };
 
+  if (isMobile) {
+    return (
+      <div style={{ minHeight: "100%", background: "var(--bg)" }}>
+        <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
+          {/* Mobile Header with Filters Button */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "8px 12px",
+              borderBottom: "1px solid var(--border)",
+              background: "var(--bg2)",
+              gap: 8,
+              flexShrink: 0,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setFilterSheetOpen(true)}
+              title="Filters"
+              style={{
+                padding: "6px 10px",
+                border: "1px solid var(--border)",
+                background: "var(--bg3)",
+                color: "var(--text2)",
+                cursor: "pointer",
+                fontFamily: "var(--font-cond)",
+                fontSize: 10,
+                textTransform: "uppercase",
+                borderRadius: 2,
+                position: "relative",
+              }}
+            >
+              Filters
+              {(draftFilters.search ||
+                draftFilters.dateFrom ||
+                draftFilters.dateTo ||
+                draftFilters.accountId ||
+                draftFilters.categoryId ||
+                draftFilters.type !== "all" ||
+                draftFilters.tag ||
+                draftFilters.amountMin ||
+                draftFilters.amountMax) && (
+                <span
+                  style={{
+                    position: "absolute",
+                    top: 2,
+                    right: 2,
+                    width: 6,
+                    height: 6,
+                    background: "var(--accent)",
+                    borderRadius: "50%",
+                  }}
+                />
+              )}
+            </button>
+            <Button onClick={openCreateModal} size="sm" style={{ flex: 1 }}>
+              + Add
+            </Button>
+          </div>
+
+          {/* Main Content */}
+          <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+            {bulkEntryMode ? (
+              <BulkEntryPanel
+                accounts={accounts}
+                categories={flatCategories.filter((c) => c.type === "expense")}
+                onSave={async () => {
+                  setBulkEntryMode(false);
+                  await refreshAfterMutation();
+                }}
+                onDiscard={() => setBulkEntryMode(false)}
+              />
+            ) : (
+              <>
+                <SummaryStripMobile summary={summary} />
+
+                {error && (
+                  <div style={noticeStyle("error")}>
+                    {error}
+                    <button
+                      type="button"
+                      onClick={() => void loadTransactions(false)}
+                      style={noticeButtonStyle}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+
+                {selectedIds.size > 0 && (
+                  <BulkBarMobile
+                    selectedCount={selectedIds.size}
+                    categories={flatCategories}
+                    categoryId={bulkCategoryId}
+                    tag={bulkTag}
+                    working={bulkWorking}
+                    onCategoryChange={setBulkCategoryId}
+                    onTagChange={setBulkTag}
+                    onCategorize={() => void runBulkAction("categorize")}
+                    onAddTag={() => void runBulkAction("add_tag")}
+                    onRemoveTag={() => void runBulkAction("remove_tag")}
+                    onDelete={() => void runBulkAction("soft_delete")}
+                    onClear={() => setSelectedIds(new Set())}
+                  />
+                )}
+
+                <TransactionListMobile
+                  transactions={transactions}
+                  loading={loading}
+                  selectedIds={selectedIds}
+                  onToggleSelected={toggleSelected}
+                  onEdit={openEditModal}
+                  onDelete={handleDelete}
+                />
+
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "center",
+                    padding: "12px 0 18px",
+                    borderTop: "1px solid var(--border)",
+                  }}
+                >
+                  {nextCursor ? (
+                    <Button
+                      variant="ghost"
+                      disabled={loadingMore}
+                      onClick={() => void loadTransactions(true)}
+                    >
+                      {loadingMore ? "Loading" : "Load More"}
+                    </Button>
+                  ) : (
+                    <span style={mutedCapsStyle}>End of result set</span>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Filter Sheet */}
+        {filterSheetOpen && (
+          <FilterSheet
+            filters={draftFilters}
+            accounts={accounts}
+            categories={flatCategories}
+            onChange={setDraftFilters}
+            onApply={() => {
+              applyFilters();
+              setFilterSheetOpen(false);
+            }}
+            onReset={() => {
+              resetFilters();
+              setFilterSheetOpen(false);
+            }}
+            onExport={handleCsvExport}
+            onBulkEntry={() => {
+              setBulkEntryMode(true);
+              setFilterSheetOpen(false);
+            }}
+            onClose={() => setFilterSheetOpen(false)}
+          />
+        )}
+
+        {modalOpen && (
+          <TransactionModalMobile
+            form={form}
+            editingTransaction={editingTransaction}
+            accounts={accounts}
+            categories={flatCategories}
+            instruments={instruments}
+            latestFxRates={latestFxRates}
+            error={formError}
+            saving={saving}
+            onClose={closeModal}
+            onSubmit={handleSubmit}
+            onChange={setForm}
+          />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div style={{ minHeight: "100%", background: "var(--bg)" }}>
       <div
@@ -552,6 +740,1047 @@ function SummaryStrip({ summary }: { summary: TransactionSummary }) {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function SummaryStripMobile({ summary }: { summary: TransactionSummary }) {
+  const metrics = [
+    {
+      label: "Transactions",
+      value: summary.count.toString(),
+      color: "var(--text)",
+      mono: true,
+    },
+    {
+      label: "Income",
+      value: formatMoney(summary.total_income_paise),
+      color: "var(--green)",
+      mono: true,
+    },
+    {
+      label: "Expenses",
+      value: formatMoney(summary.total_expense_paise),
+      color: "var(--red)",
+      mono: true,
+    },
+    {
+      label: "Net",
+      value: formatMoney(summary.net_paise),
+      color: summary.net_paise >= 0 ? "var(--accent)" : "var(--red)",
+      mono: true,
+    },
+  ];
+
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+        gap: 1,
+        background: "var(--border)",
+        borderBottom: "1px solid var(--border)",
+      }}
+    >
+      {metrics.map((metric) => (
+        <div
+          key={metric.label}
+          style={{ background: "var(--bg3)", padding: "8px 10px" }}
+        >
+          <div
+            style={{
+              fontSize: 8,
+              fontFamily: "var(--font-cond)",
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              color: "var(--text3)",
+            }}
+          >
+            {metric.label}
+          </div>
+          <div
+            style={{
+              fontFamily: metric.mono ? "var(--font-mono)" : "var(--font)",
+              fontSize: 14,
+              color: metric.color,
+              marginTop: 3,
+              lineHeight: 1.1,
+            }}
+          >
+            {metric.value}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TransactionListMobile({
+  transactions,
+  loading,
+  selectedIds,
+  onToggleSelected,
+  onEdit,
+  onDelete,
+}: {
+  transactions: Transaction[];
+  loading: boolean;
+  selectedIds: Set<string>;
+  onToggleSelected: (id: string) => void;
+  onEdit: (transaction: Transaction) => void;
+  onDelete: (transaction: Transaction) => void;
+}) {
+  if (loading) return <EmptyPanel label="Loading transactions" />;
+  if (transactions.length === 0) return <EmptyPanel label="No transactions" />;
+
+  return (
+    <div style={{ flex: 1 }}>
+      {transactions.map((transaction) => {
+        const tone = transactionTone(transaction.type);
+        return (
+          <div
+            key={transaction.id}
+            style={{
+              padding: "10px 12px",
+              borderBottom: "1px solid var(--border)",
+              background: selectedIds.has(transaction.id)
+                ? "var(--bg3)"
+                : "var(--bg2)",
+              cursor: "pointer",
+            }}
+            onClick={() => onEdit(transaction)}
+          >
+            <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+              <input
+                type="checkbox"
+                checked={selectedIds.has(transaction.id)}
+                onChange={() => onToggleSelected(transaction.id)}
+                onClick={(e) => e.stopPropagation()}
+                style={{ marginTop: 4, cursor: "pointer" }}
+              />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      color: "var(--text3)",
+                      fontFamily: "var(--font-mono)",
+                    }}
+                  >
+                    {formatDateDisplay(transaction.date)}
+                  </span>
+                  <div
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      background: tone.tagVariant === "income" ? "var(--green)" : tone.tagVariant === "expense" ? "var(--red)" : "var(--text2)",
+                    }}
+                  />
+                </div>
+                <div
+                  style={{
+                    fontFamily: "var(--font)",
+                    fontSize: 13,
+                    color: "var(--text)",
+                    marginBottom: 3,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {transaction.description}
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    fontSize: 10,
+                    color: "var(--text3)",
+                  }}
+                >
+                  {transaction.account_name && <span>{transaction.account_name}</span>}
+                  {transaction.category_name && (
+                    <span>{transaction.category_name}</span>
+                  )}
+                  {transaction.splits.length > 0 && (
+                    <span>Split {transaction.splits.length}</span>
+                  )}
+                </div>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                <span
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 13,
+                    color: tone.color,
+                    fontWeight: 500,
+                  }}
+                >
+                  {tone.prefix}
+                  {formatMoney(transaction.inr_amount_paise)}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(transaction);
+                  }}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "var(--red)",
+                    cursor: "pointer",
+                    fontSize: 10,
+                    fontFamily: "var(--font-cond)",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function BulkBarMobile({
+  selectedCount,
+  categories,
+  categoryId,
+  tag,
+  working,
+  onCategoryChange,
+  onTagChange,
+  onCategorize,
+  onAddTag,
+  onRemoveTag,
+  onDelete,
+  onClear,
+}: {
+  selectedCount: number;
+  categories: FlatCategory[];
+  categoryId: string;
+  tag: string;
+  working: boolean;
+  onCategoryChange: (value: string) => void;
+  onTagChange: (value: string) => void;
+  onCategorize: () => void;
+  onAddTag: () => void;
+  onRemoveTag: () => void;
+  onDelete: () => void;
+  onClear: () => void;
+}) {
+  return (
+    <div
+      style={{
+        padding: "8px 12px",
+        background: "var(--bg3)",
+        borderBottom: "1px solid var(--border)",
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+      }}
+    >
+      <div style={mutedCapsStyle}>{selectedCount} selected</div>
+      <Select
+        label="Category"
+        value={categoryId}
+        onChange={(event) => onCategoryChange(event.target.value)}
+      >
+        <option value="">Select category</option>
+        {categories.map((category) => (
+          <option key={category.id} value={category.id}>
+            {categoryLabel(category)}
+          </option>
+        ))}
+      </Select>
+      <Button
+        type="button"
+        variant="ghost"
+        disabled={working || !categoryId}
+        onClick={onCategorize}
+      >
+        Categorize
+      </Button>
+      <Input
+        label="Tag"
+        value={tag}
+        onChange={(event) => onTagChange(event.target.value)}
+      />
+      <div style={{ display: "flex", gap: 6 }}>
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={working || !tag.trim()}
+          onClick={onAddTag}
+          style={{ flex: 1 }}
+        >
+          Add Tag
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={working || !tag.trim()}
+          onClick={onRemoveTag}
+          style={{ flex: 1 }}
+        >
+          Remove
+        </Button>
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={working}
+          onClick={onDelete}
+          style={{ flex: 1, color: "var(--red)" }}
+        >
+          Delete
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={working}
+          onClick={onClear}
+          style={{ flex: 1 }}
+        >
+          Clear
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function FilterSheet({
+  filters,
+  accounts,
+  categories,
+  onChange,
+  onApply,
+  onReset,
+  onExport,
+  onBulkEntry,
+  onClose,
+}: {
+  filters: FilterState;
+  accounts: Account[];
+  categories: FlatCategory[];
+  onChange: (filters: FilterState) => void;
+  onApply: () => void;
+  onReset: () => void;
+  onExport: () => void;
+  onBulkEntry: () => void;
+  onClose: () => void;
+}) {
+  const update = <K extends keyof FilterState>(key: K, value: FilterState[K]) =>
+    onChange({ ...filters, [key]: value });
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.4)",
+        zIndex: 1500,
+      }}
+      onMouseDown={onClose}
+    >
+      <div
+        style={{
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          background: "var(--bg2)",
+          borderTop: "1px solid var(--border)",
+          borderRadius: "12px 12px 0 0",
+          maxHeight: "85vh",
+          overflowY: "auto",
+          zIndex: 1501,
+          animation: "slideUp 0.22s ease",
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        {/* Drag handle */}
+        <div style={{ display: "flex", justifyContent: "center", padding: "8px 0 4px" }}>
+          <div
+            style={{
+              width: 32,
+              height: 3,
+              background: "var(--border2)",
+              borderRadius: 1.5,
+            }}
+          />
+        </div>
+
+        {/* Close button */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            padding: "0 12px 8px",
+          }}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--text3)",
+              cursor: "pointer",
+              fontSize: 18,
+              lineHeight: 1,
+            }}
+          >
+            x
+          </button>
+        </div>
+
+        {/* Filter content */}
+        <div style={{ padding: "8px 12px 20px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <Input
+              label="Search"
+              value={filters.search}
+              onChange={(event) => update("search", event.target.value)}
+            />
+            <Input
+              label="From"
+              type="date"
+              value={filters.dateFrom}
+              onChange={(event) => update("dateFrom", event.target.value)}
+            />
+            <Input
+              label="To"
+              type="date"
+              value={filters.dateTo}
+              onChange={(event) => update("dateTo", event.target.value)}
+            />
+            <Select
+              label="Account"
+              value={filters.accountId}
+              onChange={(event) => update("accountId", event.target.value)}
+            >
+              <option value="">All accounts</option>
+              {accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name}
+                </option>
+              ))}
+            </Select>
+            <Select
+              label="Type"
+              value={filters.type}
+              onChange={(event) =>
+                update("type", event.target.value as FilterState["type"])
+              }
+            >
+              <option value="all">All types</option>
+              {TRANSACTION_TYPES.map((type) => (
+                <option key={type.value} value={type.value}>
+                  {type.label}
+                </option>
+              ))}
+            </Select>
+            <Select
+              label="Category"
+              value={filters.categoryId}
+              onChange={(event) => update("categoryId", event.target.value)}
+            >
+              <option value="">All categories</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {categoryLabel(category)}
+                </option>
+              ))}
+            </Select>
+            <Input
+              label="Tag"
+              value={filters.tag}
+              onChange={(event) => update("tag", event.target.value)}
+            />
+            <Input
+              label="Min"
+              value={filters.amountMin}
+              inputMode="decimal"
+              onChange={(event) => update("amountMin", event.target.value)}
+            />
+            <Input
+              label="Max"
+              value={filters.amountMax}
+              inputMode="decimal"
+              onChange={(event) => update("amountMax", event.target.value)}
+            />
+
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <Button
+                type="button"
+                onClick={onApply}
+                style={{ flex: 1 }}
+              >
+                Apply
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={onReset}
+                style={{ flex: 1 }}
+              >
+                Reset
+              </Button>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={onExport}
+                style={{ width: "100%" }}
+              >
+                Export CSV
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={onBulkEntry}
+                style={{ width: "100%" }}
+              >
+                Bulk Entry
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes slideUp {
+          from {
+            transform: translateY(100%);
+          }
+          to {
+            transform: translateY(0);
+          }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function TransactionModalMobile({
+  form,
+  editingTransaction,
+  accounts,
+  categories,
+  instruments,
+  latestFxRates,
+  error,
+  saving,
+  onClose,
+  onSubmit,
+  onChange,
+}: {
+  form: TransactionFormState;
+  editingTransaction: Transaction | null;
+  accounts: Account[];
+  categories: FlatCategory[];
+  instruments: Instrument[];
+  latestFxRates: LatestFxRate[];
+  error: string;
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (event: FormEvent) => void;
+  onChange: (form: TransactionFormState) => void;
+}) {
+  const update = <K extends keyof TransactionFormState>(
+    key: K,
+    value: TransactionFormState[K],
+  ) => onChange({ ...form, [key]: value });
+  const expectedCategoryType = categoryTypeForTransaction(form.type);
+  const availableCategories = expectedCategoryType
+    ? categories.filter((category) => category.type === expectedCategoryType)
+    : [];
+  const canSplit = form.type === "income" || form.type === "expense";
+  const needsDestination = requiresDestination(form.type);
+  const showInvestmentFields = isInvestmentType(form.type);
+  const needsInvestmentDetail = requiresInvestmentDetail(form.type);
+  const sourceAccount = accounts.find((account) => account.id === form.accountId) ?? null;
+  const destinationAccount =
+    accounts.find((account) => account.id === form.transferAccountId) ?? null;
+  const isCrossCurrencyTransfer =
+    form.type === "transfer" &&
+    sourceAccount !== null &&
+    destinationAccount !== null &&
+    sourceAccount.currency !== destinationAccount.currency;
+  const latestFxRate = useMemo(
+    () =>
+      sourceAccount && destinationAccount
+        ? findLatestFxRate(
+            latestFxRates,
+            sourceAccount.currency,
+            destinationAccount.currency,
+          )
+        : null,
+    [destinationAccount, latestFxRates, sourceAccount],
+  );
+  const computedDestinationAmount = useMemo(() => {
+    if (!isCrossCurrencyTransfer || !form.amount.trim() || !form.fxRate.trim()) {
+      return null;
+    }
+    try {
+      return Math.round(parseMoneyInput(form.amount) * parseRateInput(form.fxRate));
+    } catch {
+      return null;
+    }
+  }, [form.amount, form.fxRate, isCrossCurrencyTransfer]);
+
+  useEffect(() => {
+    if (isCrossCurrencyTransfer && !form.fxRate.trim() && latestFxRate) {
+      onChange({ ...form, fxRate: formatRateInput(latestFxRate.rate) });
+    } else if (!isCrossCurrencyTransfer && form.fxRate.trim()) {
+      onChange({ ...form, fxRate: "" });
+    }
+  }, [form, isCrossCurrencyTransfer, latestFxRate, onChange]);
+
+  const computedTotal = useMemo(() => {
+    if (!needsInvestmentDetail || !form.quantity || !form.pricePerUnit) return null;
+    try {
+      const qty = parseFloat(form.quantity);
+      const price = parseMoneyInput(form.pricePerUnit);
+      const fees = form.fees.trim() ? parseMoneyInput(form.fees) : 0;
+      if (isNaN(qty) || qty <= 0 || price <= 0) return null;
+      const gross = Math.round(qty * price);
+      return form.type === "investment_buy" ? gross + fees : Math.max(0, gross - fees);
+    } catch {
+      return null;
+    }
+  }, [needsInvestmentDetail, form.type, form.quantity, form.pricePerUnit, form.fees]);
+
+  const updateType = (type: TransactionType) => {
+    const nextCategoryType = categoryTypeForTransaction(type);
+    const nextCategories = nextCategoryType
+      ? categories.filter((category) => category.type === nextCategoryType)
+      : [];
+    const canKeepCategory =
+      nextCategoryType &&
+      nextCategories.some((category) => category.id === form.categoryId);
+    const canKeepSplits =
+      canSplitType(type) &&
+      form.splitMode &&
+      form.splits.every((split) =>
+        nextCategories.some((category) => category.id === split.categoryId),
+      );
+    onChange({
+      ...form,
+      type,
+      transferAccountId: requiresDestination(type) ? form.transferAccountId : "",
+      categoryId: nextCategoryType
+        ? canKeepCategory
+          ? form.categoryId
+          : nextCategories[0]?.id ?? ""
+        : "",
+      splitMode: canSplitType(type) ? form.splitMode : false,
+      splits: canSplitType(type)
+        ? canKeepSplits
+          ? form.splits
+          : form.splitMode
+            ? [blankSplit(nextCategories[0]?.id ?? "")]
+            : []
+        : [],
+      instrumentId: isInvestmentType(type) ? form.instrumentId : "",
+      quantity: isInvestmentType(type) ? form.quantity : "",
+      pricePerUnit: isInvestmentType(type) ? form.pricePerUnit : "",
+      fees: isInvestmentType(type) ? form.fees : "",
+      fxRate: type === "transfer" ? form.fxRate : "",
+    });
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.4)",
+        zIndex: 2000,
+      }}
+      onMouseDown={onClose}
+    >
+      <div
+        style={{
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          background: "var(--bg2)",
+          borderTop: "1px solid var(--border)",
+          borderRadius: "12px 12px 0 0",
+          maxHeight: "90vh",
+          overflowY: "auto",
+          zIndex: 2001,
+          animation: "slideUp 0.22s ease",
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        {/* Drag handle */}
+        <div style={{ display: "flex", justifyContent: "center", padding: "8px 0 4px" }}>
+          <div
+            style={{
+              width: 32,
+              height: 3,
+              background: "var(--border2)",
+              borderRadius: 1.5,
+            }}
+          />
+        </div>
+
+        <form
+          style={{ padding: "0 12px 20px" }}
+          onSubmit={onSubmit}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontFamily: "var(--font-cond)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", color: "var(--text2)", marginBottom: 10 }}>
+              {editingTransaction ? "Edit Transaction" : "Add Transaction"}
+            </div>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <Select
+              label="Type"
+              value={form.type}
+              onChange={(event) => updateType(event.target.value as TransactionType)}
+            >
+              {TRANSACTION_TYPES.map((type) => (
+                <option key={type.value} value={type.value}>
+                  {type.label}
+                </option>
+              ))}
+            </Select>
+            <Input
+              label="Description"
+              value={form.description}
+              onChange={(event) => update("description", event.target.value)}
+              required
+            />
+            <Input
+              label="Date"
+              type="date"
+              value={form.date}
+              onChange={(event) => update("date", event.target.value)}
+              required
+            />
+
+            <Select
+              label="Account"
+              value={form.accountId}
+              onChange={(event) => update("accountId", event.target.value)}
+              required
+            >
+              <option value="">Select account</option>
+              {accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name}
+                </option>
+              ))}
+            </Select>
+
+            {needsDestination && (
+              <Select
+                label="Destination"
+                value={form.transferAccountId}
+                onChange={(event) => update("transferAccountId", event.target.value)}
+                required
+              >
+                <option value="">Select destination</option>
+                {accounts
+                  .filter((account) => account.id !== form.accountId)
+                  .map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name}
+                    </option>
+                  ))}
+              </Select>
+            )}
+
+            {!showInvestmentFields && (
+              <Input
+                label="Amount"
+                value={form.amount}
+                inputMode="decimal"
+                onChange={(event) => update("amount", event.target.value)}
+                required
+              />
+            )}
+
+            {isCrossCurrencyTransfer && sourceAccount && destinationAccount && (
+              <div
+                style={{
+                  padding: "10px 12px",
+                  background: "var(--bg3)",
+                  border: "1px solid var(--border)",
+                }}
+              >
+                <div
+                  style={{
+                    fontFamily: "var(--font-cond)",
+                    fontSize: 10,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    color: "var(--text3)",
+                    marginBottom: 8,
+                  }}
+                >
+                  FX Transfer
+                </div>
+                <Input
+                  label={`Rate ${sourceAccount.currency}/${destinationAccount.currency}`}
+                  value={form.fxRate}
+                  inputMode="decimal"
+                  onChange={(event) => update("fxRate", event.target.value)}
+                  placeholder="83.450000"
+                  required
+                />
+                <div style={{ marginTop: 8 }}>
+                  <div style={metricLabelStyle}>Destination Credit</div>
+                  <div
+                    style={{
+                      marginTop: 5,
+                      minHeight: 28,
+                      display: "flex",
+                      alignItems: "center",
+                      background: "var(--bg2)",
+                      border: "1px solid var(--border2)",
+                      padding: "5px 8px",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 12,
+                      color:
+                        computedDestinationAmount !== null
+                          ? "var(--text)"
+                          : "var(--text3)",
+                    }}
+                  >
+                    {computedDestinationAmount !== null
+                      ? formatMoney(computedDestinationAmount, destinationAccount.currency)
+                      : "--"}
+                  </div>
+                </div>
+                <div
+                  style={{
+                    marginTop: 8,
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 10,
+                    color: "var(--text3)",
+                  }}
+                >
+                  {latestFxRate
+                    ? `Latest ${latestFxRate.sourceLabel}: ${formatRateInput(latestFxRate.rate)} · ${formatDateDisplay(latestFxRate.date)}`
+                    : "No saved rate for this pair"}
+                </div>
+              </div>
+            )}
+
+            {showInvestmentFields && (
+              <div style={{ padding: "10px 12px", background: "var(--bg3)", border: "1px solid var(--border)" }}>
+                <div style={{ fontFamily: "var(--font-cond)", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text3)", marginBottom: 8 }}>
+                  Investment Detail
+                </div>
+                <Select
+                  label="Instrument"
+                  value={form.instrumentId}
+                  onChange={(event) => update("instrumentId", event.target.value)}
+                  required={needsInvestmentDetail}
+                >
+                  <option value="">Select instrument</option>
+                  {instruments.map((inst) => (
+                    <option key={inst.id} value={inst.id}>
+                      {inst.name}{inst.ticker ? ` (${inst.ticker})` : ""}
+                    </option>
+                  ))}
+                </Select>
+                {needsInvestmentDetail && (
+                  <>
+                    <Input
+                      label="Quantity"
+                      value={form.quantity}
+                      inputMode="decimal"
+                      onChange={(event) => update("quantity", event.target.value)}
+                      placeholder="e.g. 10.5"
+                      required
+                    />
+                    <Input
+                      label="Price per unit"
+                      value={form.pricePerUnit}
+                      inputMode="decimal"
+                      onChange={(event) => update("pricePerUnit", event.target.value)}
+                      placeholder="e.g. 1500.00"
+                      required
+                    />
+                    <Input
+                      label="Fees"
+                      value={form.fees}
+                      inputMode="decimal"
+                      onChange={(event) => update("fees", event.target.value)}
+                      placeholder="0.00"
+                    />
+                  </>
+                )}
+                {!needsInvestmentDetail && (
+                  <Input
+                    label="Amount"
+                    value={form.amount}
+                    inputMode="decimal"
+                    onChange={(event) => update("amount", event.target.value)}
+                    required
+                  />
+                )}
+                {needsInvestmentDetail && computedTotal !== null && (
+                  <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontFamily: "var(--font-cond)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text3)" }}>
+                      {form.type === "investment_buy" ? "Total debit" : "Net proceeds"}
+                    </span>
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--text)" }}>
+                      {paiseToInput(computedTotal)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {expectedCategoryType && !form.splitMode && (
+              <Select
+                label="Category"
+                value={form.categoryId}
+                onChange={(event) => update("categoryId", event.target.value)}
+                required
+              >
+                <option value="">Select category</option>
+                {availableCategories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {categoryLabel(category)}
+                  </option>
+                ))}
+              </Select>
+            )}
+
+            <Input
+              label="Tags"
+              value={form.tags}
+              onChange={(event) => update("tags", event.target.value)}
+              placeholder="medical, tax"
+            />
+
+            {canSplit && (
+              <div>
+                <label style={checkboxLabelStyle}>
+                  <input
+                    type="checkbox"
+                    checked={form.splitMode}
+                    onChange={(event) =>
+                      onChange({
+                        ...form,
+                        splitMode: event.target.checked,
+                        categoryId: event.target.checked ? "" : form.categoryId,
+                        splits: event.target.checked
+                          ? form.splits.length > 0
+                            ? form.splits
+                            : [blankSplit(availableCategories[0]?.id ?? "")]
+                          : [],
+                      })
+                    }
+                  />
+                  Split transaction
+                </label>
+                {form.splitMode && (
+                  <SplitEditor
+                    splits={form.splits}
+                    categories={availableCategories}
+                    onChange={(splits) => update("splits", splits)}
+                  />
+                )}
+              </div>
+            )}
+
+            <div>
+              <label style={checkboxLabelStyle}>
+                <input
+                  type="checkbox"
+                  checked={form.isRecurring}
+                  onChange={(event) => update("isRecurring", event.target.checked)}
+                />
+                Recurring
+              </label>
+              {form.isRecurring && (
+                <div style={{ width: 180, marginTop: 6 }}>
+                  <Select
+                    label="Frequency"
+                    value={form.recurrenceFrequency}
+                    onChange={(event) =>
+                      update(
+                        "recurrenceFrequency",
+                        event.target.value as RecurrenceFrequency,
+                      )
+                    }
+                  >
+                    {RECURRENCE_OPTIONS.map((frequency) => (
+                      <option key={frequency} value={frequency}>
+                        {frequency}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label style={labelStyle}>Notes</label>
+              <textarea
+                value={form.notes}
+                onChange={(event) => update("notes", event.target.value)}
+                rows={3}
+                style={textareaStyle}
+              />
+            </div>
+
+            {error && (
+              <div style={{ ...noticeStyle("error"), marginTop: 10 }}>{error}</div>
+            )}
+
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={onClose}
+                style={{ flex: 1 }}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={saving} style={{ flex: 2 }}>
+                {saving
+                  ? "Saving"
+                  : editingTransaction
+                    ? "Save Transaction"
+                    : "Create Transaction"}
+              </Button>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <style>{`
+        @keyframes slideUp {
+          from {
+            transform: translateY(100%);
+          }
+          to {
+            transform: translateY(0);
+          }
+        }
+      `}</style>
     </div>
   );
 }

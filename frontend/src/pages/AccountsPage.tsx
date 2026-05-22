@@ -13,6 +13,7 @@ import Input from "../components/Input";
 import ProgressBar from "../components/ProgressBar";
 import Select from "../components/Select";
 import Tag from "../components/Tag";
+import { useIsMobile } from "../hooks/useIsMobile";
 import type {
   Account,
   AccountGroup,
@@ -84,6 +85,7 @@ function blankForm(): AccountFormState {
 }
 
 export default function AccountsPage() {
+  const isMobile = useIsMobile();
   const [data, setData] = useState<AccountsResponse>(EMPTY_RESPONSE);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -201,17 +203,10 @@ export default function AccountsPage() {
 
   return (
     <div style={{ minHeight: "100%", background: "var(--bg)" }}>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(0, 1fr) 280px",
-          gap: 1,
-          minHeight: "100%",
-          background: "var(--border)",
-        }}
-      >
-        <div style={{ background: "var(--bg2)", minWidth: 0 }}>
-          <SummaryStrip data={data} />
+      {isMobile ? (
+        // Mobile layout
+        <div style={{ background: "var(--bg2)" }}>
+          <SummaryStripMobile data={data} />
 
           {error && (
             <div style={noticeStyle("error")}>
@@ -230,8 +225,8 @@ export default function AccountsPage() {
           ) : allAccounts.length === 0 ? (
             <EmptyPanel label="No accounts yet" action={openCreateModal} />
           ) : (
-            <>
-              <AccountSideSection
+            <div style={{ padding: 12 }}>
+              <AccountSideSectionMobile
                 label="Assets"
                 color="var(--green)"
                 total={data.summary.total_assets_paise}
@@ -243,7 +238,7 @@ export default function AccountsPage() {
                 onArchive={handleArchive}
                 onSelect={setDrilldownAccount}
               />
-              <AccountSideSection
+              <AccountSideSectionMobile
                 label="Liabilities"
                 color="var(--red)"
                 total={data.summary.total_liabilities_paise}
@@ -255,16 +250,81 @@ export default function AccountsPage() {
                 onArchive={handleArchive}
                 onSelect={setDrilldownAccount}
               />
-            </>
+              <div style={{ marginTop: 12 }}>
+                <Button onClick={openCreateModal} style={{ width: "100%" }}>
+                  + Add Account
+                </Button>
+              </div>
+            </div>
           )}
         </div>
+      ) : (
+        // Desktop layout
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 1fr) 280px",
+            gap: 1,
+            minHeight: "100%",
+            background: "var(--border)",
+          }}
+        >
+          <div style={{ background: "var(--bg2)", minWidth: 0 }}>
+            <SummaryStrip data={data} />
 
-        <AccountSidebar
-          data={data}
-          loading={loading}
-          onAddAccount={openCreateModal}
-        />
-      </div>
+            {error && (
+              <div style={noticeStyle("error")}>
+                {error}
+                <button
+                  onClick={() => void loadAccounts()}
+                  style={noticeButtonStyle}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {loading ? (
+              <EmptyPanel label="Loading accounts" />
+            ) : allAccounts.length === 0 ? (
+              <EmptyPanel label="No accounts yet" action={openCreateModal} />
+            ) : (
+              <>
+                <AccountSideSection
+                  label="Assets"
+                  color="var(--green)"
+                  total={data.summary.total_assets_paise}
+                  groups={data.asset_groups}
+                  actionMenuId={actionMenuId}
+                  archivingId={archivingId}
+                  onToggleMenu={setActionMenuId}
+                  onEdit={openEditModal}
+                  onArchive={handleArchive}
+                  onSelect={setDrilldownAccount}
+                />
+                <AccountSideSection
+                  label="Liabilities"
+                  color="var(--red)"
+                  total={data.summary.total_liabilities_paise}
+                  groups={data.liability_groups}
+                  actionMenuId={actionMenuId}
+                  archivingId={archivingId}
+                  onToggleMenu={setActionMenuId}
+                  onEdit={openEditModal}
+                  onArchive={handleArchive}
+                  onSelect={setDrilldownAccount}
+                />
+              </>
+            )}
+          </div>
+
+          <AccountSidebar
+            data={data}
+            loading={loading}
+            onAddAccount={openCreateModal}
+          />
+        </div>
+      )}
 
       {modalOpen && (
         <AccountModal
@@ -284,6 +344,60 @@ export default function AccountsPage() {
           onClose={() => setDrilldownAccount(null)}
         />
       )}
+    </div>
+  );
+}
+
+function SummaryStripMobile({ data }: { data: AccountsResponse }) {
+  return (
+    <div style={{ padding: 12, background: "var(--bg3)", borderBottom: "1px solid var(--border)" }}>
+      {/* Net Worth hero */}
+      <div style={{ marginBottom: 12, padding: 12, background: "var(--bg2)", border: "1px solid var(--border)" }}>
+        <MetricLabel>Net Worth</MetricLabel>
+        <div
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: 28,
+            color: "var(--accent)",
+            marginTop: 6,
+            lineHeight: 1.1,
+          }}
+        >
+          {formatMoney(data.summary.net_worth_paise)}
+        </div>
+      </div>
+
+      {/* Assets and Liabilities grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div style={{ padding: 12, background: "var(--bg2)", border: "1px solid var(--border)" }}>
+          <MetricLabel>Total Assets</MetricLabel>
+          <div
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 18,
+              color: "var(--green)",
+              marginTop: 6,
+              lineHeight: 1.1,
+            }}
+          >
+            {formatMoney(data.summary.total_assets_paise)}
+          </div>
+        </div>
+        <div style={{ padding: 12, background: "var(--bg2)", border: "1px solid var(--border)" }}>
+          <MetricLabel>Total Liabilities</MetricLabel>
+          <div
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 18,
+              color: "var(--red)",
+              marginTop: 6,
+              lineHeight: 1.1,
+            }}
+          >
+            {formatMoney(data.summary.total_liabilities_paise)}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -337,6 +451,139 @@ function SummaryStrip({ data }: { data: AccountsResponse }) {
         </div>
       ))}
     </div>
+  );
+}
+
+function AccountSideSectionMobile({
+  label,
+  color,
+  total,
+  groups,
+  actionMenuId,
+  archivingId,
+  onToggleMenu,
+  onEdit,
+  onArchive,
+  onSelect,
+}: {
+  label: string;
+  color: string;
+  total: number;
+  groups: AccountGroup[];
+  actionMenuId: string | null;
+  archivingId: string | null;
+  onToggleMenu: (id: string | null) => void;
+  onEdit: (account: Account) => void;
+  onArchive: (account: Account) => void;
+  onSelect: (account: Account) => void;
+}) {
+  if (groups.length === 0) return null;
+
+  return (
+    <section style={{ marginBottom: 16 }}>
+      <div style={groupHeaderStyle}>
+        <span>{label}</span>
+        <span style={{ color }}>{formatMoney(total)}</span>
+      </div>
+      {groups.map((group) => (
+        <div key={group.key} style={{ marginBottom: 12 }}>
+          <div style={groupHeaderStyle}>
+            <span>{group.label}</span>
+            <span style={{ color: "var(--text2)" }}>
+              {formatMoney(group.total_inr_value_paise)}
+            </span>
+          </div>
+          <div style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: 2 }}>
+            {group.accounts.map((account) => (
+              <div
+                key={account.id}
+                onClick={() => onSelect(account)}
+                style={{
+                  padding: "12px 10px",
+                  borderBottom: "1px solid var(--border)",
+                  cursor: "pointer",
+                  background: "var(--bg2)",
+                }}
+              >
+                {/* Account name + color + type */}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                  <span
+                    style={{
+                      width: 6,
+                      height: 6,
+                      background: account.color_hex,
+                      flexShrink: 0,
+                    }}
+                  />
+                  <span style={{ fontSize: 12, color: "var(--text)", flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {account.name}
+                  </span>
+                  <div style={{ position: "relative", display: "inline-block" }}>
+                    <button
+                      type="button"
+                      title="Account actions"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleMenu(actionMenuId === account.id ? null : account.id);
+                      }}
+                      style={actionButtonStyle}
+                      disabled={archivingId === account.id}
+                    >
+                      {archivingId === account.id ? "…" : "⋯"}
+                    </button>
+                    {actionMenuId === account.id && (
+                      <div style={actionMenuStyle}>
+                        <button
+                          type="button"
+                          style={menuItemStyle}
+                          onClick={(e) => { e.stopPropagation(); onEdit(account); }}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          style={{ ...menuItemStyle, color: "var(--red)" }}
+                          onClick={(e) => { e.stopPropagation(); onArchive(account); }}
+                        >
+                          Archive
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Account info rows */}
+                <div style={{ fontSize: 10, color: "var(--text2)", marginBottom: 3 }}>
+                  <Tag>{account.currency}</Tag>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 3 }}>
+                  <span style={{ color: "var(--text3)" }}>Balance:</span>
+                  <span
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      color: account.side === "liability" ? "var(--red)" : "var(--text)",
+                    }}
+                  >
+                    {formatMoney(account.balance_paise, account.currency)}
+                  </span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                  <span style={{ color: "var(--text3)" }}>INR Value:</span>
+                  <span
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      color: account.side === "liability" ? "var(--red)" : "var(--green)",
+                    }}
+                  >
+                    {formatMoney(account.inr_value_paise)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </section>
   );
 }
 
@@ -1201,6 +1448,8 @@ const modalBackdropStyle: CSSProperties = {
 const modalStyle: CSSProperties = {
   width: 560,
   maxWidth: "100%",
+  maxHeight: "90vh",
+  overflowY: "auto",
   background: "var(--bg2)",
   border: "1px solid var(--border2)",
   boxShadow: "0 20px 60px rgba(0,0,0,0.55)",

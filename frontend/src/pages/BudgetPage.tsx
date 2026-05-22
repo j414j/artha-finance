@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
+import { useIsMobile } from "../hooks/useIsMobile";
 import {
   getBaseBudget,
   getBudget,
@@ -40,6 +41,7 @@ interface BudgetFormRow {
 type ModalMode = "base" | "monthly";
 
 export default function BudgetPage() {
+  const isMobile = useIsMobile();
   const [period, setPeriod] = useState<Period>(() => currentPeriod());
   const [budget, setBudget] = useState<BudgetMonth | null>(null);
   const [baseAllocations, setBaseAllocations] = useState<BudgetBaseAllocation[]>([]);
@@ -130,6 +132,7 @@ export default function BudgetPage() {
         onNext={() => moveMonth(1)}
         onBase={openBaseModal}
         onMonthly={openMonthlyModal}
+        isMobile={isMobile}
       />
 
       {error && (
@@ -141,9 +144,9 @@ export default function BudgetPage() {
         </div>
       )}
 
-      <div style={budgetLayoutStyle}>
+      <div style={isMobile ? mobileLayoutStyle : budgetLayoutStyle}>
         <main style={{ background: "var(--bg2)", minWidth: 0 }}>
-          {budget && <SummaryStrip budget={budget} />}
+          {budget && <SummaryStrip budget={budget} isMobile={isMobile} />}
 
           {loading ? (
             <EmptyPanel label="Loading budget" />
@@ -153,10 +156,12 @@ export default function BudgetPage() {
             <EmptyPanel label="No budget allocations" action={openBaseModal} />
           )}
 
-          <HistoryTable history={history} loading={loading} />
+          {!isMobile && <HistoryTable history={history} loading={loading} />}
+
+          {isMobile && <BudgetSidebar budget={budget} history={history} loading={loading} isMobile />}
         </main>
 
-        <BudgetSidebar budget={budget} history={history} loading={loading} />
+        {!isMobile && <BudgetSidebar budget={budget} history={history} loading={loading} />}
       </div>
 
       {modalMode && (
@@ -183,6 +188,7 @@ function MonthBar({
   onNext,
   onBase,
   onMonthly,
+  isMobile,
 }: {
   budget: BudgetMonth | null;
   period: Period;
@@ -191,11 +197,39 @@ function MonthBar({
   onNext: () => void;
   onBase: () => void;
   onMonthly: () => void;
+  isMobile: boolean;
 }) {
   const label = budget?.month_label ?? `${monthName(period.month)} ${period.year}`;
   const elapsed = budget?.summary.days_elapsed ?? 0;
   const days = budget?.summary.days_in_month ?? daysInMonth(period);
   const expected = budget?.summary.expected_pct ?? 0;
+
+  if (isMobile) {
+    return (
+      <div style={mobileMonthBarStyle}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <Button variant="ghost" size="sm" onClick={onPrev} title="Previous month">
+            ◀
+          </Button>
+          <span style={mobileMonthTitleStyle}>{label.toUpperCase()}</span>
+          <Button variant="ghost" size="sm" onClick={onNext} title="Next month">
+            ▶
+          </Button>
+        </div>
+        <span style={mobileElapsedStyle}>
+          {elapsed}/{days} ({formatPct(expected)})
+        </span>
+        <div style={{ display: "flex", gap: 4, width: "100%", marginTop: 6 }}>
+          <Button size="sm" variant="ghost" onClick={onMonthly} disabled={loading} style={{ flex: 1 }}>
+            Override
+          </Button>
+          <Button size="sm" onClick={onBase} disabled={loading} style={{ flex: 1 }}>
+            Edit
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={monthBarStyle}>
@@ -221,7 +255,7 @@ function MonthBar({
   );
 }
 
-function SummaryStrip({ budget }: { budget: BudgetMonth }) {
+function SummaryStrip({ budget, isMobile }: { budget: BudgetMonth; isMobile?: boolean }) {
   const metrics = [
     {
       label: "Total Budget",
@@ -250,7 +284,7 @@ function SummaryStrip({ budget }: { budget: BudgetMonth }) {
   ];
 
   return (
-    <div style={summaryGridStyle}>
+    <div style={isMobile ? mobileSummaryGridStyle : summaryGridStyle}>
       {metrics.map((metric) => (
         <div key={metric.label} style={summaryCellStyle}>
           <MetricLabel>{metric.label}</MetricLabel>
@@ -381,14 +415,78 @@ function BudgetSidebar({
   budget,
   history,
   loading,
+  isMobile,
 }: {
   budget: BudgetMonth | null;
   history: BudgetHistory | null;
   loading: boolean;
+  isMobile?: boolean;
 }) {
   const trend = history?.savings_rate_trend ?? [];
   const average = averageRate(trend);
   const best = bestRate(trend);
+
+  if (isMobile) {
+    return (
+      <section style={{ background: "var(--bg2)", paddingBottom: 16 }}>
+        <SectionHeader>Savings Rate Trend</SectionHeader>
+        <div style={{ padding: 12 }}>
+          {loading ? <EmptyPanel label="Loading trend" compact /> : <SavingsChart trend={trend} />}
+          <div style={sidebarMetricListStyle}>
+            <SidebarMetric
+              label="This Month"
+              value={formatNullablePct(budget?.savings.savings_rate_pct ?? null)}
+              color="var(--green)"
+            />
+            <SidebarMetric
+              label="6M Average"
+              value={formatNullablePct(average)}
+              color="var(--text2)"
+            />
+            <SidebarMetric
+              label="Best Month"
+              value={best ? `${formatPct(best.savings_rate_pct ?? 0)} (${best.label})` : "—"}
+              color="var(--green)"
+            />
+          </div>
+        </div>
+        <SectionHeader>Unbudgeted Spend</SectionHeader>
+        <UnbudgetedTable rows={budget?.unbudgeted ?? []} loading={loading} />
+        <div style={{ marginTop: 16 }}>
+          <SectionHeader>Budget History — Last 6 Months</SectionHeader>
+        </div>
+        {loading ? (
+          <EmptyPanel label="Loading history" compact />
+        ) : !history || history.rows.length === 0 ? (
+          <EmptyPanel label="No budget history" compact />
+        ) : (
+          <div style={{ padding: "10px 16px" }}>
+            {history.rows.map((row) => (
+              <div key={row.category_id} style={mobileHistoryRowStyle}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={mobileHistoryCategoryStyle}>
+                    <CategoryMark category={row.category} /> {row.category.name}
+                  </div>
+                  <div style={mobileHistoryValuesStyle}>
+                    {history.months.map((month, idx) => {
+                      const value = row.values.find(
+                        (v) => v.year === month.year && v.month === month.month,
+                      );
+                      return (
+                        <span key={`${month.year}-${month.month}`} style={mobileHistoryValueStyle}>
+                          {month.label}: {value?.used_pct == null ? "—" : formatPct(value.used_pct)}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    );
+  }
 
   return (
     <aside style={sidebarStyle}>
@@ -524,6 +622,7 @@ function BudgetEditorModal({
   onClose: () => void;
   onSubmit: (event: FormEvent) => void;
 }) {
+  const isMobile = useIsMobile();
   const title =
     mode === "base"
       ? "Edit Base Budget"
@@ -540,7 +639,7 @@ function BudgetEditorModal({
   return (
     <div style={modalBackdropStyle} onMouseDown={onClose}>
       <form
-        style={modalStyle}
+        style={isMobile ? mobileModalStyle : modalStyle}
         onSubmit={onSubmit}
         onMouseDown={(event) => event.stopPropagation()}
       >
@@ -550,39 +649,64 @@ function BudgetEditorModal({
             ×
           </button>
         </div>
-        <div style={{ padding: 14 }}>
+        <div style={{ padding: 14, overflowY: "auto", maxHeight: isMobile ? "85vh" : "auto" }}>
           {error && <div style={noticeStyle("error")}>{error}</div>}
-          <table style={tableStyle}>
-            <thead>
-              <tr>
-                <Th>Category</Th>
-                <Th align="right">Monthly Limit</Th>
-                {mode === "monthly" && <Th align="right">Mode</Th>}
-              </tr>
-            </thead>
-            <tbody>
+          {isMobile ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {rows.map((row) => (
-                <tr key={row.category_id}>
-                  <Td>
-                    <CategoryMark category={row.category} /> {row.category.name}
-                  </Td>
-                  <Td align="right">
-                    <input
-                      value={row.amount}
-                      onChange={(event) => updateRow(row.category_id, event.target.value)}
-                      inputMode="decimal"
-                      style={amountInputStyle}
-                    />
-                  </Td>
-                  {mode === "monthly" && (
-                    <Td align="right" color="var(--text3)">
-                      {row.dirty || row.is_manual_override ? "Override" : "Snapshot"}
-                    </Td>
-                  )}
-                </tr>
+                <div key={row.category_id} style={mobileFormRowStyle}>
+                  <div>
+                    <div style={mobileFormLabelStyle}>
+                      <CategoryMark category={row.category} /> {row.category.name}
+                    </div>
+                    {mode === "monthly" && (
+                      <div style={mobileFormModeStyle}>
+                        {row.dirty || row.is_manual_override ? "Override" : "Snapshot"}
+                      </div>
+                    )}
+                  </div>
+                  <input
+                    value={row.amount}
+                    onChange={(event) => updateRow(row.category_id, event.target.value)}
+                    inputMode="decimal"
+                    style={mobileAmountInputStyle}
+                  />
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+          ) : (
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  <Th>Category</Th>
+                  <Th align="right">Monthly Limit</Th>
+                  {mode === "monthly" && <Th align="right">Mode</Th>}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.category_id}>
+                    <Td>
+                      <CategoryMark category={row.category} /> {row.category.name}
+                    </Td>
+                    <Td align="right">
+                      <input
+                        value={row.amount}
+                        onChange={(event) => updateRow(row.category_id, event.target.value)}
+                        inputMode="decimal"
+                        style={amountInputStyle}
+                      />
+                    </Td>
+                    {mode === "monthly" && (
+                      <Td align="right" color="var(--text3)">
+                        {row.dirty || row.is_manual_override ? "Override" : "Snapshot"}
+                      </Td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
           <div style={modalFooterStyle}>
             <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>
               Cancel
@@ -1092,4 +1216,111 @@ const modalFooterStyle: CSSProperties = {
   marginTop: 12,
   paddingTop: 12,
   borderTop: "1px solid var(--border)",
+};
+
+const mobileLayoutStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  minHeight: "calc(100vh - 90px)",
+  background: "var(--border)",
+};
+
+const mobileMonthBarStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 6,
+  padding: "8px 14px",
+  background: "var(--bg2)",
+  borderBottom: "1px solid var(--border)",
+};
+
+const mobileMonthTitleStyle: CSSProperties = {
+  fontFamily: "var(--font-cond)",
+  fontSize: 13,
+  fontWeight: 600,
+  letterSpacing: "0.06em",
+  color: "var(--text)",
+};
+
+const mobileElapsedStyle: CSSProperties = {
+  fontFamily: "var(--font-mono)",
+  fontSize: 9,
+  color: "var(--text3)",
+};
+
+const mobileSummaryGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: 1,
+  background: "var(--border)",
+  borderBottom: "1px solid var(--border)",
+};
+
+const mobileModalStyle: CSSProperties = {
+  width: "100vw",
+  maxHeight: "95vh",
+  background: "var(--bg2)",
+  border: "1px solid var(--border2)",
+  borderRadius: 0,
+};
+
+const mobileFormRowStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-end",
+  gap: 8,
+  paddingBottom: 8,
+  borderBottom: "1px solid var(--border)",
+};
+
+const mobileFormLabelStyle: CSSProperties = {
+  fontFamily: "var(--font-cond)",
+  fontSize: 11,
+  fontWeight: 600,
+  color: "var(--text)",
+  marginBottom: 4,
+};
+
+const mobileFormModeStyle: CSSProperties = {
+  fontFamily: "var(--font-mono)",
+  fontSize: 9,
+  color: "var(--text3)",
+};
+
+const mobileAmountInputStyle: CSSProperties = {
+  width: 100,
+  background: "var(--bg3)",
+  border: "1px solid var(--border2)",
+  color: "var(--text)",
+  padding: "4px 7px",
+  fontFamily: "var(--font-mono)",
+  fontSize: 11,
+  outline: "none",
+  textAlign: "right",
+  borderRadius: 2,
+};
+
+const mobileHistoryRowStyle: CSSProperties = {
+  padding: "10px 0",
+  borderBottom: "1px solid var(--border)",
+};
+
+const mobileHistoryCategoryStyle: CSSProperties = {
+  fontFamily: "var(--font-cond)",
+  fontSize: 11,
+  fontWeight: 600,
+  color: "var(--text)",
+  marginBottom: 4,
+};
+
+const mobileHistoryValuesStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 2,
+};
+
+const mobileHistoryValueStyle: CSSProperties = {
+  fontFamily: "var(--font-mono)",
+  fontSize: 9,
+  color: "var(--text2)",
 };

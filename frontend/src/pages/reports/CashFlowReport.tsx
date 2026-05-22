@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
+import { useIsMobile } from '../../hooks/useIsMobile'
 import {
   ResponsiveContainer,
   BarChart,
@@ -396,6 +397,7 @@ interface TooltipState { x: number; y: number; lines: string[] }
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function CashFlowReport() {
+  const isMobile = useIsMobile()
   const [period, setPeriod] = useState<PeriodKey>('this_fy')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
@@ -516,7 +518,7 @@ export default function CashFlowReport() {
       </div>
 
       {/* Summary strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 1, background: 'var(--border)', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(5,1fr)', gap: 1, background: 'var(--border)', borderBottom: '1px solid var(--border)' }}>
         {[
           { label: 'Total Income', value: totalIncome, color: 'var(--green)', sub: rangeLabel(range.from, range.to) || '—', subColor: 'var(--text3)' },
           { label: 'Total Expenses', value: totalExpenses, color: 'var(--red)', sub: pct(totalExpenses) + ' of income', subColor: 'var(--text3)' },
@@ -538,7 +540,7 @@ export default function CashFlowReport() {
           Money Flow — Sankey Diagram
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text3)', letterSpacing: 0, textTransform: 'none' }}>{rangeLabel(range.from, range.to)}</span>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 220px', gap: 1, background: 'var(--border)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 220px', gap: 1, background: 'var(--border)' }}>
           {/* Sankey canvas */}
           <div style={{ background: 'var(--bg2)', padding: '16px 16px 12px', position: 'relative' }}>
             {loading && <div style={{ color: 'var(--text2)', fontFamily: 'var(--font-mono)', fontSize: 12, padding: '40px 0' }}>Loading…</div>}
@@ -625,7 +627,7 @@ export default function CashFlowReport() {
           </div>
 
           {/* Right panel */}
-          <div style={{ background: 'var(--bg2)', borderLeft: '1px solid var(--border)' }}>
+          <div style={{ background: 'var(--bg2)', borderLeft: isMobile ? 'none' : '1px solid var(--border)', borderTop: isMobile ? '1px solid var(--border)' : 'none' }}>
             <div style={sHd}>Income Breakdown</div>
             <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 5 }}>
               {flowData.incomeSources.length === 0 && <div style={{ color: 'var(--text3)', fontSize: 10, fontFamily: 'var(--font-mono)' }}>—</div>}
@@ -718,7 +720,7 @@ export default function CashFlowReport() {
       </div>
 
       {/* ── Section 3: Cumulative + Trend (2-column) ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, background: 'var(--border)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 1, background: 'var(--border)' }}>
 
         {/* Cumulative Cash Flow */}
         <div style={{ background: 'var(--bg2)' }}>
