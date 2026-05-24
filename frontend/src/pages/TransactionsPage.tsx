@@ -24,6 +24,7 @@ import Button from "../components/Button";
 import Input from "../components/Input";
 import Select from "../components/Select";
 import Tag from "../components/Tag";
+import BlurredValue from "../components/BlurredValue";
 import type { Account } from "../types/account";
 import type { CategoryNode, CategoryType } from "../types/category";
 import type {
@@ -696,18 +697,21 @@ function SummaryStrip({ summary }: { summary: TransactionSummary }) {
       value: formatMoney(summary.total_income_paise),
       color: "var(--green)",
       mono: true,
+      blur: true,
     },
     {
       label: "Expenses",
       value: formatMoney(summary.total_expense_paise),
       color: "var(--red)",
       mono: true,
+      blur: true,
     },
     {
       label: "Net",
       value: formatMoney(summary.net_paise),
       color: summary.net_paise >= 0 ? "var(--accent)" : "var(--red)",
       mono: true,
+      blur: true,
     },
   ];
 
@@ -736,7 +740,7 @@ function SummaryStrip({ summary }: { summary: TransactionSummary }) {
               lineHeight: 1.1,
             }}
           >
-            {metric.value}
+            {metric.blur ? <BlurredValue>{metric.value}</BlurredValue> : metric.value}
           </div>
         </div>
       ))}
@@ -757,18 +761,21 @@ function SummaryStripMobile({ summary }: { summary: TransactionSummary }) {
       value: formatMoney(summary.total_income_paise),
       color: "var(--green)",
       mono: true,
+      blur: true,
     },
     {
       label: "Expenses",
       value: formatMoney(summary.total_expense_paise),
       color: "var(--red)",
       mono: true,
+      blur: true,
     },
     {
       label: "Net",
       value: formatMoney(summary.net_paise),
       color: summary.net_paise >= 0 ? "var(--accent)" : "var(--red)",
       mono: true,
+      blur: true,
     },
   ];
 
@@ -807,7 +814,7 @@ function SummaryStripMobile({ summary }: { summary: TransactionSummary }) {
               lineHeight: 1.1,
             }}
           >
-            {metric.value}
+            {metric.blur ? <BlurredValue>{metric.value}</BlurredValue> : metric.value}
           </div>
         </div>
       ))}

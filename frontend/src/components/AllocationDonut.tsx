@@ -1,5 +1,6 @@
 import { formatMoney } from '../utils/format'
 import type { DonutSegment } from '../utils/allocation'
+import BlurredValue from './BlurredValue'
 
 function DonutSvg({ segments }: { segments: DonutSegment[] }) {
   const visible = segments.filter((s) => s.value > 0)
@@ -95,9 +96,9 @@ function DonutLegend({ segments }: { segments: DonutSegment[] }) {
             >
               {seg.label}
             </span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text3)' }}>
+            <BlurredValue style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text3)' }}>
               {formatMoney(seg.value, 'INR', true)}
-            </span>
+            </BlurredValue>
             <span
               style={{
                 fontFamily: 'var(--font-mono)',

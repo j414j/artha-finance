@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useBlur } from '../contexts/BlurContext'
 import { useIsMobile } from '../hooks/useIsMobile'
 
 const TAB_ROUTES = [
@@ -20,6 +21,7 @@ export default function Topbar() {
   const { user, logout } = useAuth()
 
   const isMobile = useIsMobile()
+  const { isBlurred, toggleBlur } = useBlur()
   const [dateTime, setDateTime] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuPos, setMenuPos] = useState({ top: 0, right: 0 })
@@ -139,10 +141,11 @@ export default function Topbar() {
           {!isMobile && (
             <>
               <button
+                onClick={toggleBlur}
                 style={{
-                  border: '1px solid var(--border2)',
-                  background: 'none',
-                  color: 'var(--text3)',
+                  border: `1px solid ${isBlurred ? 'var(--accent)' : 'var(--border2)'}`,
+                  background: isBlurred ? 'rgba(240,165,0,0.08)' : 'none',
+                  color: isBlurred ? 'var(--accent)' : 'var(--text3)',
                   fontFamily: 'var(--font-mono)',
                   fontSize: 10,
                   cursor: 'pointer',
@@ -150,15 +153,19 @@ export default function Topbar() {
                   letterSpacing: '0.05em',
                 }}
                 onMouseEnter={e => {
-                  e.currentTarget.style.color = 'var(--accent)'
-                  e.currentTarget.style.borderColor = 'var(--accent)'
+                  if (!isBlurred) {
+                    e.currentTarget.style.color = 'var(--accent)'
+                    e.currentTarget.style.borderColor = 'var(--accent)'
+                  }
                 }}
                 onMouseLeave={e => {
-                  e.currentTarget.style.color = 'var(--text3)'
-                  e.currentTarget.style.borderColor = 'var(--border2)'
+                  if (!isBlurred) {
+                    e.currentTarget.style.color = 'var(--text3)'
+                    e.currentTarget.style.borderColor = 'var(--border2)'
+                  }
                 }}
               >
-                BLUR ◉
+                {isBlurred ? 'BLUR ◉' : 'BLUR ○'}
               </button>
 
               <span

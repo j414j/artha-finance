@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
+import { BlurProvider } from './contexts/BlurContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import AppShell from './layout/AppShell'
 import LoginPage from './pages/LoginPage'
@@ -22,6 +23,7 @@ import SettingsPage from './pages/SettingsPage'
 export default function App() {
   return (
     <BrowserRouter>
+      <BlurProvider>
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
@@ -53,6 +55,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </AuthProvider>
+      </BlurProvider>
     </BrowserRouter>
   )
 }

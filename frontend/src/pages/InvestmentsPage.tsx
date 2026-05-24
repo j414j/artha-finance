@@ -5,6 +5,7 @@ import { createInstrument, createPriceSnapshot } from '../api/instruments';
 import { getHoldings, getHoldingsSummary } from '../api/investments';
 import Button from '../components/Button';
 import AllocationDonut from '../components/AllocationDonut';
+import BlurredValue from '../components/BlurredValue';
 import HoldingDrilldown from '../components/HoldingDrilldown';
 import Input from '../components/Input';
 import Select from '../components/Select';
@@ -339,7 +340,7 @@ export default function InvestmentsPage() {
                         fontSize: 9,
                       }}
                     >
-                      {formatMoney(groupValue)}
+                      <BlurredValue>{formatMoney(groupValue)}</BlurredValue>
                     </span>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -482,7 +483,7 @@ export default function InvestmentsPage() {
                               fontSize: 10,
                             }}
                           >
-                            {formatMoney(groupValue)}
+                            <BlurredValue>{formatMoney(groupValue)}</BlurredValue>
                           </span>
                         </td>
                         <td style={{ background: 'var(--bg3)', padding: '5px 8px' }} />
@@ -575,18 +576,18 @@ function SummaryStripMobile({ summary }: { summary: HoldingsSummary | null }) {
   const pct = summary?.total_unrealised_pnl_pct ?? null;
 
   const unrealisedLabel = pnl !== null
-    ? `${formatMoney(pnl)}  ${fmtPct(pct)}`
+    ? <><BlurredValue>{formatMoney(pnl)}</BlurredValue>  {fmtPct(pct)}</>
     : '--';
 
   const metrics = [
     {
       label: 'Invested',
-      value: summary ? formatMoney(summary.total_invested_paise) : '--',
+      value: summary ? <BlurredValue>{formatMoney(summary.total_invested_paise)}</BlurredValue> : '--',
     },
     {
       label: 'Current Value',
       value: summary?.total_current_value_paise != null
-        ? formatMoney(summary.total_current_value_paise)
+        ? <BlurredValue>{formatMoney(summary.total_current_value_paise)}</BlurredValue>
         : '--',
     },
     {
@@ -596,7 +597,7 @@ function SummaryStripMobile({ summary }: { summary: HoldingsSummary | null }) {
     },
     {
       label: 'Realised P&L',
-      value: summary ? formatMoney(summary.total_realised_pnl_paise) : '--',
+      value: summary ? <BlurredValue>{formatMoney(summary.total_realised_pnl_paise)}</BlurredValue> : '--',
       valueColor: summary ? pnlColor(summary.total_realised_pnl_paise) : 'var(--text3)',
     },
   ];
@@ -646,20 +647,20 @@ function SummaryStrip({ summary }: { summary: HoldingsSummary | null }) {
   const pct = summary?.total_unrealised_pnl_pct ?? null;
 
   const unrealisedLabel = pnl !== null
-    ? `${formatMoney(pnl)}  ${fmtPct(pct)}`
+    ? <><BlurredValue>{formatMoney(pnl)}</BlurredValue>  {fmtPct(pct)}</>
     : '--';
 
   return (
     <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
       <MetricCard
         label="Invested"
-        value={summary ? formatMoney(summary.total_invested_paise) : '--'}
+        value={summary ? <BlurredValue>{formatMoney(summary.total_invested_paise)}</BlurredValue> : '--'}
       />
       <MetricCard
         label="Current Value"
         value={
           summary?.total_current_value_paise != null
-            ? formatMoney(summary.total_current_value_paise)
+            ? <BlurredValue>{formatMoney(summary.total_current_value_paise)}</BlurredValue>
             : '--'
         }
       />
@@ -670,7 +671,7 @@ function SummaryStrip({ summary }: { summary: HoldingsSummary | null }) {
       />
       <MetricCard
         label="Realised P&L"
-        value={summary ? formatMoney(summary.total_realised_pnl_paise) : '--'}
+        value={summary ? <BlurredValue>{formatMoney(summary.total_realised_pnl_paise)}</BlurredValue> : '--'}
         valueColor={
           summary
             ? pnlColor(summary.total_realised_pnl_paise)
@@ -691,7 +692,7 @@ function MetricCard({
   valueColor = 'var(--text)',
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
   valueColor?: string;
 }) {
   return (
@@ -797,37 +798,37 @@ function HoldingRow({
 
       {/* Avg cost */}
       <Td align="right" mono>
-        {formatMoney(h.avg_cost_per_unit_paise, h.instrument_currency)}
+        <BlurredValue>{formatMoney(h.avg_cost_per_unit_paise, h.instrument_currency)}</BlurredValue>
       </Td>
 
       {/* Price */}
       <Td align="right" mono color={h.latest_price_paise != null ? 'var(--text)' : 'var(--text3)'}>
         {h.latest_price_paise != null
-          ? formatMoney(h.latest_price_paise, h.instrument_currency)
+          ? <BlurredValue>{formatMoney(h.latest_price_paise, h.instrument_currency)}</BlurredValue>
           : '--'}
       </Td>
 
       {/* Invested */}
       <Td align="right" mono>
-        <MoneyWithInr
+        <BlurredValue><MoneyWithInr
           amount={h.invested_value_paise}
           currency={h.instrument_currency}
           inrAmount={h.invested_value_inr_paise}
-        />
+        /></BlurredValue>
       </Td>
 
       {/* Current */}
       <Td align="right" mono>
-        <MoneyWithInr
+        <BlurredValue><MoneyWithInr
           amount={h.current_value_paise}
           currency={h.instrument_currency}
           inrAmount={h.current_value_inr_paise}
-        />
+        /></BlurredValue>
       </Td>
 
       {/* P&L ₹ */}
       <Td align="right" mono color={pnlColor(h.unrealised_pnl_inr_paise)}>
-        {h.unrealised_pnl_inr_paise != null ? formatMoney(h.unrealised_pnl_inr_paise) : '--'}
+        {h.unrealised_pnl_inr_paise != null ? <BlurredValue>{formatMoney(h.unrealised_pnl_inr_paise)}</BlurredValue> : '--'}
       </Td>
 
       {/* P&L % */}
@@ -915,17 +916,17 @@ function HoldingCardMobile({
         <div>
           <div style={{ fontSize: 9, color: 'var(--text3)' }}>Current Value</div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text)' }}>
-            <MoneyWithInr
+            <BlurredValue><MoneyWithInr
               amount={h.current_value_paise}
               currency={h.instrument_currency}
               inrAmount={h.current_value_inr_paise}
-            />
+            /></BlurredValue>
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontSize: 9, color: 'var(--text3)' }}>P&L</div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: pnlColor(h.unrealised_pnl_inr_paise) }}>
-            {h.unrealised_pnl_inr_paise != null ? formatMoney(h.unrealised_pnl_inr_paise) : '--'}
+            {h.unrealised_pnl_inr_paise != null ? <BlurredValue>{formatMoney(h.unrealised_pnl_inr_paise)}</BlurredValue> : '--'}
           </div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: pnlColor(h.unrealised_pnl_pct) }}>
             {fmtPct(h.unrealised_pnl_pct)}
@@ -968,11 +969,11 @@ function MoneyWithInr({
       }}
     >
       <span style={{ color: amount != null ? 'var(--text)' : 'var(--text3)' }}>
-        {amount != null ? formatMoney(amount, currency) : '--'}
+        {amount != null ? <BlurredValue>{formatMoney(amount, currency)}</BlurredValue> : '--'}
       </span>
       {showInr && (
         <span style={{ color: 'var(--text3)', fontSize: 9 }}>
-          {inrAmount != null ? `INR ${formatMoney(inrAmount)}` : 'INR --'}
+          {inrAmount != null ? <BlurredValue>INR {formatMoney(inrAmount)}</BlurredValue> : 'INR --'}
         </span>
       )}
     </span>
@@ -1115,7 +1116,7 @@ function PriceModal({
 
   const currentPrice =
     holding.latest_price_paise != null
-      ? formatMoney(holding.latest_price_paise, holding.instrument_currency)
+      ? <BlurredValue>{formatMoney(holding.latest_price_paise, holding.instrument_currency)}</BlurredValue>
       : null;
 
   return (

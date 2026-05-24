@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useBlur } from '../contexts/BlurContext'
 
 interface NavItem {
   icon: string
@@ -30,6 +31,7 @@ export default function BottomNav() {
   const location = useLocation()
   const navigate = useNavigate()
   const { user, logout } = useAuth()
+  const { isBlurred, toggleBlur } = useBlur()
   const [sheetOpen, setSheetOpen] = useState(false)
   const sheetRef = useRef<HTMLDivElement>(null)
 
@@ -286,6 +288,37 @@ export default function BottomNav() {
               }}
             >
               Settings
+            </span>
+          </button>
+        </div>
+
+        {/* Blur toggle */}
+        <div style={{ padding: '8px 20px 0', borderTop: '1px solid var(--border)' }}>
+          <button
+            onClick={toggleBlur}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: '10px 0',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: isBlurred ? 'var(--accent)' : 'var(--text2)',
+            }}
+          >
+            <span style={{ fontSize: 18 }}>{isBlurred ? '◉' : '○'}</span>
+            <span
+              style={{
+                fontFamily: 'var(--font-cond)',
+                fontSize: 12,
+                fontWeight: 500,
+                letterSpacing: '0.04em',
+                textTransform: 'uppercase',
+              }}
+            >
+              {isBlurred ? 'Blur On — Tap to reveal' : 'Blur sensitive values'}
             </span>
           </button>
         </div>

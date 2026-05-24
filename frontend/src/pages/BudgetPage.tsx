@@ -24,6 +24,7 @@ import type {
   UnbudgetedSpend,
 } from "../types/budget";
 import { formatMoney, paiseToInput, parseMoneyInput } from "../utils/format";
+import BlurredValue from "../components/BlurredValue";
 
 interface Period {
   year: number;
@@ -262,18 +263,21 @@ function SummaryStrip({ budget, isMobile }: { budget: BudgetMonth; isMobile?: bo
       value: formatMoney(budget.summary.total_budget_paise),
       color: "var(--text)",
       sub: null,
+      blur: true,
     },
     {
       label: "Spent",
       value: formatMoney(budget.summary.spent_paise),
       color: "var(--red)",
       sub: null,
+      blur: true,
     },
     {
       label: "Remaining",
       value: formatMoney(budget.summary.remaining_paise),
       color: budget.summary.remaining_paise < 0 ? "var(--red)" : "var(--green)",
       sub: null,
+      blur: true,
     },
     {
       label: "% Used",
@@ -288,7 +292,9 @@ function SummaryStrip({ budget, isMobile }: { budget: BudgetMonth; isMobile?: bo
       {metrics.map((metric) => (
         <div key={metric.label} style={summaryCellStyle}>
           <MetricLabel>{metric.label}</MetricLabel>
-          <div style={{ ...metricValueStyle, color: metric.color }}>{metric.value}</div>
+          <div style={{ ...metricValueStyle, color: metric.color }}>
+            {metric.blur ? <BlurredValue>{metric.value}</BlurredValue> : metric.value}
+          </div>
           {metric.sub && <div style={metricSubStyle}>{metric.sub}</div>}
         </div>
       ))}

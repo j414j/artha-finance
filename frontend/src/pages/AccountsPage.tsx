@@ -14,6 +14,7 @@ import ProgressBar from "../components/ProgressBar";
 import Select from "../components/Select";
 import Tag from "../components/Tag";
 import { useIsMobile } from "../hooks/useIsMobile";
+import BlurredValue from "../components/BlurredValue";
 import type {
   Account,
   AccountGroup,
@@ -354,48 +355,51 @@ function SummaryStripMobile({ data }: { data: AccountsResponse }) {
       {/* Net Worth hero */}
       <div style={{ marginBottom: 12, padding: 12, background: "var(--bg2)", border: "1px solid var(--border)" }}>
         <MetricLabel>Net Worth</MetricLabel>
-        <div
+        <BlurredValue
           style={{
             fontFamily: "var(--font-mono)",
             fontSize: 28,
             color: "var(--accent)",
             marginTop: 6,
             lineHeight: 1.1,
+            display: "block",
           }}
         >
           {formatMoney(data.summary.net_worth_paise)}
-        </div>
+        </BlurredValue>
       </div>
 
       {/* Assets and Liabilities grid */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <div style={{ padding: 12, background: "var(--bg2)", border: "1px solid var(--border)" }}>
           <MetricLabel>Total Assets</MetricLabel>
-          <div
+          <BlurredValue
             style={{
               fontFamily: "var(--font-mono)",
               fontSize: 18,
               color: "var(--green)",
               marginTop: 6,
               lineHeight: 1.1,
+              display: "block",
             }}
           >
             {formatMoney(data.summary.total_assets_paise)}
-          </div>
+          </BlurredValue>
         </div>
         <div style={{ padding: 12, background: "var(--bg2)", border: "1px solid var(--border)" }}>
           <MetricLabel>Total Liabilities</MetricLabel>
-          <div
+          <BlurredValue
             style={{
               fontFamily: "var(--font-mono)",
               fontSize: 18,
               color: "var(--red)",
               marginTop: 6,
               lineHeight: 1.1,
+              display: "block",
             }}
           >
             {formatMoney(data.summary.total_liabilities_paise)}
-          </div>
+          </BlurredValue>
         </div>
       </div>
     </div>
@@ -437,17 +441,18 @@ function SummaryStrip({ data }: { data: AccountsResponse }) {
           style={{ background: "var(--bg3)", padding: "10px 14px" }}
         >
           <MetricLabel>{metric.label}</MetricLabel>
-          <div
+          <BlurredValue
             style={{
               fontFamily: "var(--font-mono)",
               fontSize: 21,
               color: metric.color,
               marginTop: 6,
               lineHeight: 1.1,
+              display: "block",
             }}
           >
             {formatMoney(metric.value)}
-          </div>
+          </BlurredValue>
         </div>
       ))}
     </div>
@@ -483,15 +488,15 @@ function AccountSideSectionMobile({
     <section style={{ marginBottom: 16 }}>
       <div style={groupHeaderStyle}>
         <span>{label}</span>
-        <span style={{ color }}>{formatMoney(total)}</span>
+        <BlurredValue style={{ color }}>{formatMoney(total)}</BlurredValue>
       </div>
       {groups.map((group) => (
         <div key={group.key} style={{ marginBottom: 12 }}>
           <div style={groupHeaderStyle}>
             <span>{group.label}</span>
-            <span style={{ color: "var(--text2)" }}>
+            <BlurredValue style={{ color: "var(--text2)" }}>
               {formatMoney(group.total_inr_value_paise)}
-            </span>
+            </BlurredValue>
           </div>
           <div style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: 2 }}>
             {group.accounts.map((account) => (
@@ -558,25 +563,25 @@ function AccountSideSectionMobile({
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 3 }}>
                   <span style={{ color: "var(--text3)" }}>Balance:</span>
-                  <span
+                  <BlurredValue
                     style={{
                       fontFamily: "var(--font-mono)",
                       color: account.side === "liability" ? "var(--red)" : "var(--text)",
                     }}
                   >
                     {formatMoney(account.balance_paise, account.currency)}
-                  </span>
+                  </BlurredValue>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                   <span style={{ color: "var(--text3)" }}>INR Value:</span>
-                  <span
+                  <BlurredValue
                     style={{
                       fontFamily: "var(--font-mono)",
                       color: account.side === "liability" ? "var(--red)" : "var(--green)",
                     }}
                   >
                     {formatMoney(account.inr_value_paise)}
-                  </span>
+                  </BlurredValue>
                 </div>
               </div>
             ))}
@@ -706,7 +711,7 @@ function AccountTable({
                 account.side === "liability" ? "var(--red)" : "var(--text)"
               }
             >
-              {formatMoney(account.balance_paise, account.currency)}
+              <BlurredValue>{formatMoney(account.balance_paise, account.currency)}</BlurredValue>
             </Td>
             <Td
               align="right"
@@ -715,7 +720,7 @@ function AccountTable({
                 account.side === "liability" ? "var(--red)" : "var(--green)"
               }
             >
-              {formatMoney(account.inr_value_paise)}
+              <BlurredValue>{formatMoney(account.inr_value_paise)}</BlurredValue>
             </Td>
             <Td mono color="var(--text3)" size={10}>
               {formatDateDisplay(account.last_updated)}
@@ -826,14 +831,14 @@ function AccountSidebar({
                       <span style={{ color: "var(--text2)" }}>
                         {account.name}
                       </span>
-                      <span
+                      <BlurredValue
                         style={{
                           fontFamily: "var(--font-mono)",
                           color: "var(--red)",
                         }}
                       >
                         {formatMoney(account.inr_value_paise, "INR", true)}
-                      </span>
+                      </BlurredValue>
                     </div>
                     <ProgressBar value={pct} variant="red" />
                   </div>
@@ -981,10 +986,8 @@ function AllocationLegend({
               />
               <span style={{ color: "var(--text2)" }}>{group.label}</span>
             </span>
-            <span
-              style={{ fontFamily: "var(--font-mono)", color: "var(--text)" }}
-            >
-              {pct}% · {formatMoney(group.total_inr_value_paise, "INR", true)}
+            <span style={{ fontFamily: "var(--font-mono)", color: "var(--text)" }}>
+              {pct}% · <BlurredValue>{formatMoney(group.total_inr_value_paise, "INR", true)}</BlurredValue>
             </span>
           </div>
         );
@@ -1200,7 +1203,7 @@ function GroupHeader({
       }}
     >
       <span>{label}</span>
-      <span style={{ color }}>{formatMoney(total)}</span>
+      <BlurredValue style={{ color }}>{formatMoney(total)}</BlurredValue>
     </div>
   );
 }
@@ -1217,9 +1220,9 @@ function SubgroupHeader({ group }: { group: AccountGroup }) {
       }}
     >
       <span>{group.label}</span>
-      <span style={{ color: "var(--text2)" }}>
+      <BlurredValue style={{ color: "var(--text2)" }}>
         {formatMoney(group.total_inr_value_paise)}
-      </span>
+      </BlurredValue>
     </div>
   );
 }

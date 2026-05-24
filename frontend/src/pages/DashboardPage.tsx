@@ -9,6 +9,7 @@ import type { BudgetHistory, BudgetItem, BudgetMonth, SavingsRatePoint } from '.
 import type { Transaction } from '../types/transaction'
 import { formatMoney } from '../utils/format'
 import { useIsMobile } from '../hooks/useIsMobile'
+import BlurredValue from '../components/BlurredValue'
 
 const SHORT_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
@@ -335,7 +336,7 @@ export default function DashboardPage() {
         {/* ── Net Worth Hero ── */}
         <div style={{ ...card, padding: '16px 16px 14px' }}>
           <div style={metricLabel}>Net Worth</div>
-          <div
+          <BlurredValue
             style={{
               fontFamily: 'var(--font-mono)',
               fontSize: 34,
@@ -344,13 +345,14 @@ export default function DashboardPage() {
               letterSpacing: -1,
               margin: '6px 0 4px',
               lineHeight: 1,
+              display: 'block',
             }}
           >
             {formatMoney(netWorth)}
-          </div>
+          </BlurredValue>
           {nwChange !== null && nwChangePct !== null && (
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: nwChange >= 0 ? 'var(--green)' : 'var(--red)' }}>
-              {nwChange >= 0 ? '▲' : '▼'} {formatMoney(Math.abs(nwChange))}&nbsp;
+              {nwChange >= 0 ? '▲' : '▼'} <BlurredValue>{formatMoney(Math.abs(nwChange))}</BlurredValue>&nbsp;
               {nwChangePct >= 0 ? '+' : ''}{nwChangePct.toFixed(2)}% vs last month
             </div>
           )}
@@ -383,9 +385,9 @@ export default function DashboardPage() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, background: 'var(--border)' }}>
           <div style={{ background: 'var(--bg2)', padding: '12px 14px' }}>
             <div style={metricLabel}>Total Assets</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 20, color: 'var(--text)', letterSpacing: -0.5, margin: '4px 0 8px', lineHeight: 1.1 }}>
+            <BlurredValue style={{ fontFamily: 'var(--font-mono)', fontSize: 20, color: 'var(--text)', letterSpacing: -0.5, margin: '4px 0 8px', lineHeight: 1.1, display: 'block' }}>
               {formatMoney(totalAssets)}
-            </div>
+            </BlurredValue>
             <div style={{ display: 'flex', gap: 2, height: 4 }}>
               {allocationSegments.map(g => (
                 <div key={g.key} style={{ background: g.color, width: `${g.pct}%`, height: 4 }} />
@@ -401,14 +403,14 @@ export default function DashboardPage() {
           </div>
           <div style={{ background: 'var(--bg2)', padding: '12px 14px' }}>
             <div style={metricLabel}>Liabilities</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 20, color: 'var(--red)', letterSpacing: -0.5, margin: '4px 0 8px', lineHeight: 1.1 }}>
+            <BlurredValue style={{ fontFamily: 'var(--font-mono)', fontSize: 20, color: 'var(--red)', letterSpacing: -0.5, margin: '4px 0 8px', lineHeight: 1.1, display: 'block' }}>
               {formatMoney(totalLiabilities)}
-            </div>
+            </BlurredValue>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
               {liabilityGroups.map(g => (
                 <div key={g.key} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10 }}>
                   <span style={{ color: 'var(--text2)', fontFamily: 'var(--font-cond)' }}>{g.label}</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--red)' }}>{formatMoney(g.total_inr_value_paise, 'INR', true)}</span>
+                  <BlurredValue style={{ fontFamily: 'var(--font-mono)', color: 'var(--red)' }}>{formatMoney(g.total_inr_value_paise, 'INR', true)}</BlurredValue>
                 </div>
               ))}
               {liabilityGroups.length === 0 && (
@@ -424,21 +426,21 @@ export default function DashboardPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
             <div>
               <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--font-mono)' }}>INCOME</div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 17, color: 'var(--green)', margin: '3px 0' }}>
+              <BlurredValue style={{ fontFamily: 'var(--font-mono)', fontSize: 17, color: 'var(--green)', margin: '3px 0', display: 'block' }}>
                 {formatMoney(budget?.savings.income_paise ?? 0, 'INR', true)}
-              </div>
+              </BlurredValue>
             </div>
             <div>
               <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--font-mono)' }}>EXPENSES</div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 17, color: 'var(--red)', margin: '3px 0' }}>
+              <BlurredValue style={{ fontFamily: 'var(--font-mono)', fontSize: 17, color: 'var(--red)', margin: '3px 0', display: 'block' }}>
                 {formatMoney(budget?.savings.expense_paise ?? 0, 'INR', true)}
-              </div>
+              </BlurredValue>
             </div>
             <div>
               <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--font-mono)' }}>SAVED</div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 17, color: 'var(--accent)', margin: '3px 0' }}>
+              <BlurredValue style={{ fontFamily: 'var(--font-mono)', fontSize: 17, color: 'var(--accent)', margin: '3px 0', display: 'block' }}>
                 {formatMoney(budget?.savings.net_paise ?? 0, 'INR', true)}
-              </div>
+              </BlurredValue>
               {budget?.savings.savings_rate_pct != null && (
                 <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--font-mono)' }}>
                   {budget.savings.savings_rate_pct.toFixed(1)}% rate
@@ -557,7 +559,7 @@ export default function DashboardPage() {
         {/* Net Worth Hero */}
         <div style={{ background: 'var(--bg2)', padding: '14px 16px' }}>
           <div style={metricLabel}>Net Worth</div>
-          <div
+          <BlurredValue
             style={{
               fontFamily: 'var(--font-mono)',
               fontSize: 28,
@@ -566,10 +568,11 @@ export default function DashboardPage() {
               letterSpacing: -0.5,
               margin: '4px 0 2px',
               lineHeight: 1.1,
+              display: 'block',
             }}
           >
             {formatMoney(netWorth)}
-          </div>
+          </BlurredValue>
           {nwChange !== null && nwChangePct !== null && (
             <div
               style={{
@@ -578,7 +581,7 @@ export default function DashboardPage() {
                 color: nwChange >= 0 ? 'var(--green)' : 'var(--red)',
               }}
             >
-              {nwChange >= 0 ? '▲' : '▼'} {formatMoney(Math.abs(nwChange))}&nbsp;
+              {nwChange >= 0 ? '▲' : '▼'} <BlurredValue>{formatMoney(Math.abs(nwChange))}</BlurredValue>&nbsp;
               {nwChangePct >= 0 ? '+' : ''}{nwChangePct.toFixed(2)}% vs last month
             </div>
           )}
@@ -606,9 +609,9 @@ export default function DashboardPage() {
         {/* Total Assets */}
         <div style={{ background: 'var(--bg2)', padding: '10px 14px' }}>
           <div style={metricLabel}>Total Assets</div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 400, color: 'var(--text)', letterSpacing: -0.5, margin: '4px 0 2px', lineHeight: 1.1 }}>
+          <BlurredValue style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 400, color: 'var(--text)', letterSpacing: -0.5, margin: '4px 0 2px', lineHeight: 1.1, display: 'block' }}>
             {formatMoney(totalAssets)}
-          </div>
+          </BlurredValue>
           <div style={{ marginTop: 10 }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text3)', marginBottom: 4 }}>ALLOCATION</div>
             <div style={{ display: 'flex', gap: 2, height: 6 }}>
@@ -629,16 +632,16 @@ export default function DashboardPage() {
         {/* Total Liabilities */}
         <div style={{ background: 'var(--bg2)', padding: '10px 14px' }}>
           <div style={metricLabel}>Total Liabilities</div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 400, color: 'var(--red)', letterSpacing: -0.5, margin: '4px 0 2px', lineHeight: 1.1 }}>
+          <BlurredValue style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 400, color: 'var(--red)', letterSpacing: -0.5, margin: '4px 0 2px', lineHeight: 1.1, display: 'block' }}>
             {formatMoney(totalLiabilities)}
-          </div>
+          </BlurredValue>
           <div style={{ marginTop: 10 }}>
             <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--font-cond)', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 6 }}>By Type</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {liabilityGroups.map(g => (
                 <div key={g.key} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10 }}>
                   <span style={{ color: 'var(--text2)' }}>{g.label}</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--red)' }}>{formatMoney(g.total_inr_value_paise)}</span>
+                  <BlurredValue style={{ fontFamily: 'var(--font-mono)', color: 'var(--red)' }}>{formatMoney(g.total_inr_value_paise)}</BlurredValue>
                 </div>
               ))}
               {liabilityGroups.length === 0 && (
@@ -654,22 +657,22 @@ export default function DashboardPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 6 }}>
             <div>
               <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--font-mono)' }}>INCOME</div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 16, color: 'var(--green)', margin: '2px 0' }}>
+              <BlurredValue style={{ fontFamily: 'var(--font-mono)', fontSize: 16, color: 'var(--green)', margin: '2px 0', display: 'block' }}>
                 {formatMoney(budget?.savings.income_paise ?? 0)}
-              </div>
+              </BlurredValue>
             </div>
             <div>
               <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--font-mono)' }}>EXPENSES</div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 16, color: 'var(--red)', margin: '2px 0' }}>
+              <BlurredValue style={{ fontFamily: 'var(--font-mono)', fontSize: 16, color: 'var(--red)', margin: '2px 0', display: 'block' }}>
                 {formatMoney(budget?.savings.expense_paise ?? 0)}
-              </div>
+              </BlurredValue>
             </div>
           </div>
           <div style={{ marginTop: 6 }}>
             <div style={{ fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--font-mono)' }}>NET SAVINGS</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 18, color: 'var(--accent)', margin: '2px 0' }}>
+            <BlurredValue style={{ fontFamily: 'var(--font-mono)', fontSize: 18, color: 'var(--accent)', margin: '2px 0', display: 'block' }}>
               {formatMoney(budget?.savings.net_paise ?? 0)}
-            </div>
+            </BlurredValue>
             {budget?.savings.savings_rate_pct != null && (
               <div style={{ fontSize: 9, color: 'var(--text2)', fontFamily: 'var(--font-mono)' }}>
                 SAVINGS RATE: {budget.savings.savings_rate_pct.toFixed(1)}%
