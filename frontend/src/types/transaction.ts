@@ -130,12 +130,28 @@ export interface BulkTransactionRequest {
 }
 
 export interface BatchCreateItem {
-  date: string;
-  account_id: string;
-  description: string;
-  amount_paise: number;
-  category_id: string;
-  notes?: string;
+  date?: string;
+  account_id?: string;
+  account_name?: string;
+  transfer_account_id?: string | null;
+  transfer_account_name?: string | null;
+  type?: TransactionType;
+  description?: string;
+  amount_paise?: number;
+  category_id?: string | null;
+  category_name?: string | null;
+  notes?: string | null;
+  tags?: string[];
+  splits?: TransactionSplitPayload[];
+  is_recurring?: boolean;
+  recurrence_frequency?: RecurrenceFrequency | null;
+  fx_rate?: number | null;
+  fx_to_amount_paise?: number | null;
+  fx_fee_paise?: number | null;
+  instrument_id?: string | null;
+  quantity?: number | null;
+  price_per_unit_paise?: number | null;
+  fees_paise?: number | null;
 }
 
 export interface BatchCreateRequest {

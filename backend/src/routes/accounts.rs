@@ -726,6 +726,39 @@ async fn fetch_active_account(pool: &SqlitePool, id: &str, user_id: &str) -> Res
     .ok_or_else(|| AppError::NotFound("Account not found".into()))
 }
 
+pub async fn fetch_active_account_by_name(
+    pool: &sqlx::SqlitePool,
+    user_id: &str,
+    name: &str,
+) -> Result<Option<Account>> {
+    Ok(sqlx::query_as::<_, Account>(
+        "SELECT id,
+                user_id,
+                name,
+                type AS account_type,
+                currency,
+                opening_balance_paise,
+                opening_date,
+                balance_paise,
+                inr_value_paise,
+                color_hex,
+                is_active,
+                archived_at,
+                last_updated,
+                notes,
+                created_at,
+                updated_at
+         FROM accounts
+         WHERE user_id = ? AND is_active = 1
+           AND lower(trim(name)) = lower(trim(?))
+         LIMIT 1",
+    )
+    .bind(user_id)
+    .bind(name)
+    .fetch_optional(pool)
+    .await?)
+}
+
 async fn fetch_active_account_in_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     id: &str,
