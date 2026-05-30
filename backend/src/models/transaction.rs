@@ -66,7 +66,7 @@ pub struct TransactionTag {
     pub tag: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct TransactionSplitInput {
     pub category_id: String,
     pub amount_paise: i64,

@@ -369,6 +369,34 @@ async fn fetch_active_category(
     .ok_or_else(|| AppError::NotFound("Category not found".into()))
 }
 
+pub async fn fetch_active_category_by_name(
+    pool: &sqlx::SqlitePool,
+    user_id: &str,
+    name: &str,
+) -> Result<Option<Category>> {
+    Ok(sqlx::query_as::<_, Category>(
+        "SELECT id,
+                user_id,
+                parent_id,
+                name,
+                type AS category_type,
+                color_hex,
+                icon_emoji,
+                is_default,
+                is_active,
+                created_at,
+                updated_at
+         FROM categories
+         WHERE user_id = ? AND is_active = 1
+           AND lower(trim(name)) = lower(trim(?))
+         LIMIT 1",
+    )
+    .bind(user_id)
+    .bind(name)
+    .fetch_optional(pool)
+    .await?)
+}
+
 async fn fetch_active_category_in_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     id: &str,

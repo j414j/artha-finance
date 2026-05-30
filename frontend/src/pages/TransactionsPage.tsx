@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import type { CSSProperties, FormEvent, ReactNode } from "react";
+import type { ChangeEvent, CSSProperties, FormEvent, ReactNode } from "react";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { getAccounts } from "../api/accounts";
 import { getCategories } from "../api/categories";
@@ -28,11 +28,13 @@ import BlurredValue from "../components/BlurredValue";
 import type { Account } from "../types/account";
 import type { CategoryNode, CategoryType } from "../types/category";
 import type {
+  BatchCreateItem,
   BatchRowError,
   RecurrenceFrequency,
   Transaction,
   TransactionFilters,
   TransactionPayload,
+  TransactionSplitPayload,
   TransactionSummary,
   TransactionType,
 } from "../types/transaction";
@@ -42,6 +44,7 @@ import {
   paiseToInput,
   parseMoneyInput,
 } from "../utils/format";
+import { parseCsv, csvRowsToObjects } from "../utils/csv";
 
 const TRANSACTION_TYPES: Array<{ value: TransactionType; label: string }> = [
   { value: "expense", label: "Expense" },
@@ -156,6 +159,24 @@ export default function TransactionsPage() {
   const [bulkCategoryId, setBulkCategoryId] = useState("");
   const [bulkWorking, setBulkWorking] = useState(false);
   const [bulkEntryMode, setBulkEntryMode] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importRows, setImportRows] = useState<{
+    payload: BatchCreateItem;
+    preview: {
+      row: number;
+      date: string;
+      type: string;
+      account: string;
+      description: string;
+      amount: string;
+      category: string;
+      error?: string;
+    };
+  }[]>([]);
+  const [importParseErrors, setImportParseErrors] = useState<string[]>([]);
+  const [importError, setImportError] = useState("");
+  const [importLoading, setImportLoading] = useState(false);
+  const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
 
   const flatCategories = useMemo(() => flattenCategories(categories), [categories]);
@@ -168,14 +189,16 @@ export default function TransactionsPage() {
         getInstruments(),
         getLatestFxRates(),
       ]);
+      const investmentGroups = (accountResponse as any).investment_groups ?? [];
       setAccounts(
-        [...accountResponse.asset_groups, ...accountResponse.liability_groups]
+        [...accountResponse.asset_groups, ...accountResponse.liability_groups, ...investmentGroups]
           .flatMap((group) => group.accounts)
           .sort((a, b) => a.name.localeCompare(b.name)),
       );
       setCategories(categoryResponse.categories);
       setInstruments(instrumentResponse.instruments);
       setLatestFxRates(fxResponse.latest);
+
     } catch (err) {
       setError(
         err instanceof ApiError ? err.message : "Unable to load reference data",
@@ -196,6 +219,7 @@ export default function TransactionsPage() {
         );
         if (append) {
           const response = await getTransactions(filters);
+
           setTransactions((current) => [...current, ...response.transactions]);
           setNextCursor(response.next_cursor);
         } else {
@@ -203,6 +227,7 @@ export default function TransactionsPage() {
             getTransactions(filters),
             getTransactionSummary({ ...filters, cursor: undefined }),
           ]);
+
           setTransactions(listResponse.transactions);
           setSummary(summaryResponse.summary);
           setNextCursor(listResponse.next_cursor);
@@ -323,6 +348,327 @@ export default function TransactionsPage() {
     }
   };
 
+  const openImportModal = () => {
+    setImportRows([]);
+    setImportParseErrors([]);
+    setImportError("");
+    setImportModalOpen(true);
+
+  };
+
+  const handleImportButtonClick = () => {
+
+    if (importFileInputRef.current) {
+      importFileInputRef.current.value = "";
+      importFileInputRef.current.click();
+    } else {
+      openImportModal();
+    }
+  };
+
+
+
+  const closeImportModal = () => {
+    if (importLoading) return;
+    setImportModalOpen(false);
+    setImportRows([]);
+    setImportParseErrors([]);
+    setImportError("");
+
+  };
+
+  const normalizeValue = (value: string | undefined): string =>
+    value?.trim() ?? "";
+
+  const resolveAccountId = (
+    accountId: string | undefined,
+    accountName: string | undefined,
+  ): string | undefined => {
+    if (accountId?.trim()) return accountId.trim();
+    const normalized = accountName?.trim().toLowerCase();
+    return accounts.find((account) => account.name.toLowerCase() === normalized)
+      ?.id;
+  };
+
+  const resolveCategoryId = (
+    categoryId: string | undefined,
+    categoryName: string | undefined,
+  ): string | undefined => {
+    if (categoryId?.trim()) return categoryId.trim();
+    const normalized = categoryName?.trim().toLowerCase();
+    return flatCategories.find(
+      (category) => category.name.toLowerCase() === normalized,
+    )?.id;
+  };
+
+  const resolveInstrumentId = (
+    instrumentId: string | undefined,
+    instrumentName: string | undefined,
+  ): string | undefined => {
+    if (instrumentId?.trim()) return instrumentId.trim();
+    const normalized = instrumentName?.trim().toLowerCase();
+    return instruments.find(
+      (instrument) => instrument.name.toLowerCase() === normalized,
+    )?.id;
+  };
+
+  const parseOptionalInteger = (value: string | undefined): number | undefined => {
+    if (!value?.trim()) return undefined;
+    const normalized = value.trim();
+    const parsed = Number(normalized);
+    if (Number.isInteger(parsed)) return parsed;
+    return undefined;
+  };
+
+  const parseOptionalFloat = (value: string | undefined): number | undefined => {
+    if (!value?.trim()) return undefined;
+    const parsed = Number(value.trim());
+    return Number.isFinite(parsed) ? parsed : undefined;
+  };
+
+  const parseSplitValues = (
+    raw: string,
+  ): { splits: TransactionSplitPayload[]; error?: string } => {
+    const normalized = raw.trim();
+    if (!normalized) return { splits: [] };
+
+    const parts = normalized.split(";").map((part) => part.trim()).filter(Boolean);
+    const splits: TransactionSplitPayload[] = [];
+
+    for (const part of parts) {
+      const [categoryRef, amountValue] = part.split(":", 2).map((value) => value.trim());
+      if (!categoryRef || !amountValue) {
+        return { splits: [], error: `Invalid split segment '${part}'` };
+      }
+
+      const categoryId = resolveCategoryId(categoryRef, categoryRef);
+      if (!categoryId) {
+        return { splits: [], error: `Split category '${categoryRef}' not found` };
+      }
+
+      let amountPaise: number;
+      if (/^\d+$/.test(amountValue)) {
+        amountPaise = Number(amountValue);
+      } else {
+        try {
+          amountPaise = parseMoneyInput(amountValue);
+        } catch (err) {
+          return { splits: [], error: `Invalid split amount '${amountValue}'` };
+        }
+      }
+
+      if (amountPaise <= 0) {
+        return { splits: [], error: `Split amount must be positive in '${part}'` };
+      }
+
+      splits.push({ category_id: categoryId, amount_paise: amountPaise });
+    }
+
+    return { splits };
+  };
+
+  const parseImportRows = (content: string) => {
+    const csvRows = parseCsv(content);
+    const objects = csvRowsToObjects(csvRows);
+    const rows: typeof importRows = [];
+    const errors: string[] = [];
+
+    const getRowValue = (
+      row: Record<string, string>,
+      ...keys: Array<keyof typeof objects[number]>
+    ): string => {
+      for (const key of keys) {
+        const value = row[key as string];
+        if (value?.trim()) return value.trim();
+      }
+      return "";
+    };
+
+    objects.forEach((row, index) => {
+      const rowNumber = index + 1;
+      const date = normalizeValue(getRowValue(row, "date"));
+      const rawType = normalizeValue(getRowValue(row, "type", "tx_type"));
+      const type = TRANSACTION_TYPES.some((option) => option.value === rawType)
+        ? (rawType as TransactionType)
+        : "expense";
+      const accountId = resolveAccountId(
+        getRowValue(row, "account_id"),
+        getRowValue(row, "account_name", "account"),
+      );
+      const transferAccountId = resolveAccountId(
+        getRowValue(row, "transfer_account_id"),
+        getRowValue(row, "transfer_account_name", "transfer_account"),
+      );
+      const description = normalizeValue(getRowValue(row, "description", "desc"));
+      const categoryId = resolveCategoryId(
+        getRowValue(row, "category_id"),
+        getRowValue(row, "category_name", "category"),
+      );
+      const amountPaise = getRowValue(row, "amount_paise")
+        ? Number(getRowValue(row, "amount_paise"))
+        : getRowValue(row, "amount")
+          ? parseMoneyInput(getRowValue(row, "amount"))
+          : undefined;
+      const tags = getRowValue(row, "tags", "tag").split(/\s+/).filter(Boolean);
+      const isRecurring = normalizeValue(getRowValue(row, "is_recurring")).toLowerCase() === "true";
+      const recurrenceFrequency = normalizeValue(row.recurrence_frequency) as RecurrenceFrequency;
+      const fxRate = parseOptionalFloat(row.fx_rate);
+      const fxToAmountPaise = parseOptionalInteger(row.fx_to_amount_paise);
+      const fxFeePaise = parseOptionalInteger(row.fx_fee_paise);
+      const instrumentId = resolveInstrumentId(
+        row.instrument_id,
+        row.instrument_name || row.instrument,
+      );
+      const quantity = parseOptionalFloat(row.quantity);
+      const pricePerUnitPaise = parseOptionalInteger(row.price_per_unit_paise);
+      const feesPaise = parseOptionalInteger(row.fees_paise);
+
+      const splitResult = parseSplitValues(row.splits || "");
+      const rowErrors: string[] = [];
+
+      if (!date) rowErrors.push("Missing date");
+      if (!accountId) {
+        const accountHint = getRowValue(row, "account_name", "account", "account_id");
+        rowErrors.push(
+          accountHint
+            ? `Account '${accountHint}' not found`
+            : "Missing or invalid account",
+        );
+      }
+      if (!description) rowErrors.push("Missing description");
+      if (amountPaise === undefined || Number.isNaN(amountPaise)) {
+        rowErrors.push("Missing or invalid amount");
+      }
+      if (
+        (type === "transfer" || type === "credit_card_payment" || type === "loan_repayment") &&
+        !transferAccountId
+      ) {
+        rowErrors.push("Missing or invalid destination account for transfer");
+      }
+      if (splitResult.error) rowErrors.push(splitResult.error);
+      if (row.amount_paise?.trim() && !/^\d+$/.test(row.amount_paise.trim())) {
+        rowErrors.push("amount_paise must be an integer");
+      }
+      if (row.amount?.trim() && !/^\d+(\.\d{1,2})?$/.test(row.amount.trim())) {
+        rowErrors.push("amount must be a decimal number with up to 2 places");
+      }
+      if (row.recurrence_frequency?.trim() && !RECURRENCE_OPTIONS.includes(recurrenceFrequency)) {
+        rowErrors.push("Invalid recurrence frequency");
+      }
+
+      const payload: BatchCreateItem = {
+        date: date || undefined,
+        account_id: accountId || undefined,
+        account_name: getRowValue(row, "account_name", "account") || undefined,
+        transfer_account_id: transferAccountId || undefined,
+        transfer_account_name: getRowValue(row, "transfer_account_name", "transfer_account") || undefined,
+        type,
+        description: description || undefined,
+        amount_paise: amountPaise,
+        category_id: categoryId || undefined,
+        category_name: getRowValue(row, "category_name", "category") || undefined,
+        notes: normalizeValue(row.notes) || undefined,
+        tags: tags?.length ? tags : undefined,
+        splits: splitResult.splits.length ? splitResult.splits : undefined,
+        is_recurring: isRecurring || undefined,
+        recurrence_frequency: recurrenceFrequency || undefined,
+        fx_rate: fxRate === undefined ? undefined : fxRate,
+        fx_to_amount_paise: fxToAmountPaise,
+        fx_fee_paise: fxFeePaise,
+        instrument_id: instrumentId || undefined,
+        quantity: quantity === undefined ? undefined : quantity,
+        price_per_unit_paise: pricePerUnitPaise,
+        fees_paise: feesPaise,
+      };
+
+      rows.push({
+        payload,
+        preview: {
+          row: rowNumber,
+          date,
+          type,
+          account: getRowValue(row, "account_name", "account", "account_id"),
+          description,
+          amount: getRowValue(row, "amount") || String(amountPaise ?? ""),
+          category: getRowValue(row, "category_name", "category", "category_id"),
+          error: rowErrors.length > 0 ? rowErrors.join("; ") : undefined,
+        },
+      });
+
+      if (rowErrors.length > 0) {
+        errors.push(`Row ${rowNumber}: ${rowErrors.join("; ")}`);
+      }
+    });
+
+    return { rows, errors };
+  };
+
+  const handleImportFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    setImportParseErrors([]);
+    setImportError("");
+    try {
+      const content = await file.text();
+      const parsed = parseImportRows(content);
+
+      setImportRows(parsed.rows);
+      setImportParseErrors(parsed.errors);
+      setImportModalOpen(true);
+    } catch (err) {
+
+      setImportRows([]);
+      setImportParseErrors([
+        err instanceof Error ? err.message : "Unable to parse CSV file",
+      ]);
+      setImportModalOpen(true);
+    }
+  };
+
+  const handleImportSubmit = async () => {
+    setImportError("");
+    if (importRows.length === 0) {
+      setImportError("Choose a valid CSV file with at least one transaction row.");
+      return;
+    }
+    const invalidRows = importRows.filter((row) => row.preview.error);
+    if (invalidRows.length > 0) {
+      setImportError("Fix the highlighted rows before importing.");
+      return;
+    }
+
+    setImportLoading(true);
+    try {
+      await batchCreateTransactions({
+        transactions: importRows.map((row) => row.payload),
+      });
+      setImportModalOpen(false);
+      setImportRows([]);
+      setImportParseErrors([]);
+      await refreshAfterMutation();
+    } catch (err) {
+      if (err instanceof BatchCreateError && err.rowErrors.length > 0) {
+        const rows = [...importRows];
+        err.rowErrors.forEach(({ row, message }) => {
+          const target = rows[row];
+          if (target) {
+            target.preview.error = message;
+          }
+        });
+        setImportRows(rows);
+        setImportError("Some rows failed validation on the server.");
+      } else {
+        setImportError(err instanceof Error ? err.message : "Unable to import CSV");
+      }
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
   const toggleSelected = (id: string) => {
     setSelectedIds((current) => {
       const next = new Set(current);
@@ -413,18 +759,18 @@ export default function TransactionsPage() {
                 draftFilters.tag ||
                 draftFilters.amountMin ||
                 draftFilters.amountMax) && (
-                <span
-                  style={{
-                    position: "absolute",
-                    top: 2,
-                    right: 2,
-                    width: 6,
-                    height: 6,
-                    background: "var(--accent)",
-                    borderRadius: "50%",
-                  }}
-                />
-              )}
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: 2,
+                      right: 2,
+                      width: 6,
+                      height: 6,
+                      background: "var(--accent)",
+                      borderRadius: "50%",
+                    }}
+                  />
+                )}
             </button>
             <Button onClick={openCreateModal} size="sm" style={{ flex: 1 }}>
               + Add
@@ -527,6 +873,10 @@ export default function TransactionsPage() {
               setFilterSheetOpen(false);
             }}
             onExport={handleCsvExport}
+            onImport={() => {
+              handleImportButtonClick();
+              setFilterSheetOpen(false);
+            }}
             onBulkEntry={() => {
               setBulkEntryMode(true);
               setFilterSheetOpen(false);
@@ -534,6 +884,25 @@ export default function TransactionsPage() {
             onClose={() => setFilterSheetOpen(false)}
           />
         )}
+
+        <input
+          ref={importFileInputRef}
+          type="file"
+          accept=".csv"
+          style={{ display: "none" }}
+          onChange={handleImportFileChange}
+        />
+
+        <ImportCsvModal
+          open={importModalOpen}
+          rows={importRows}
+          parseErrors={importParseErrors}
+          importError={importError}
+          loading={importLoading}
+          onClose={closeImportModal}
+          onFileChange={handleImportFileChange}
+          onImport={handleImportSubmit}
+        />
 
         {modalOpen && (
           <TransactionModalMobile
@@ -578,81 +947,82 @@ export default function TransactionsPage() {
             />
           ) : (
             <>
-          <SummaryStrip summary={summary} />
-          <FilterBar
-            filters={draftFilters}
-            accounts={accounts}
-            categories={flatCategories}
-            onChange={setDraftFilters}
-            onApply={applyFilters}
-            onReset={resetFilters}
-            onExport={handleCsvExport}
-            onAdd={openCreateModal}
-            onBulkEntry={() => setBulkEntryMode(true)}
-          />
+              <SummaryStrip summary={summary} />
+              <FilterBar
+                filters={draftFilters}
+                accounts={accounts}
+                categories={flatCategories}
+                onChange={setDraftFilters}
+                onApply={applyFilters}
+                onReset={resetFilters}
+                onExport={handleCsvExport}
+                onImport={handleImportButtonClick}
+                onAdd={openCreateModal}
+                onBulkEntry={() => setBulkEntryMode(true)}
+              />
 
-          {error && (
-            <div style={noticeStyle("error")}>
-              {error}
-              <button
-                type="button"
-                onClick={() => void loadTransactions(false)}
-                style={noticeButtonStyle}
+              {error && (
+                <div style={noticeStyle("error")}>
+                  {error}
+                  <button
+                    type="button"
+                    onClick={() => void loadTransactions(false)}
+                    style={noticeButtonStyle}
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
+
+              {selectedIds.size > 0 && (
+                <BulkBar
+                  selectedCount={selectedIds.size}
+                  categories={flatCategories}
+                  categoryId={bulkCategoryId}
+                  tag={bulkTag}
+                  working={bulkWorking}
+                  onCategoryChange={setBulkCategoryId}
+                  onTagChange={setBulkTag}
+                  onCategorize={() => void runBulkAction("categorize")}
+                  onAddTag={() => void runBulkAction("add_tag")}
+                  onRemoveTag={() => void runBulkAction("remove_tag")}
+                  onDelete={() => void runBulkAction("soft_delete")}
+                  onClear={() => setSelectedIds(new Set())}
+                />
+              )}
+
+              <TransactionTable
+                transactions={transactions}
+                loading={loading}
+                selectedIds={selectedIds}
+                actionMenuId={actionMenuId}
+                onToggleSelected={toggleSelected}
+                onToggleAll={toggleAllVisible}
+                onToggleMenu={setActionMenuId}
+                onEdit={openEditModal}
+                onDelete={handleDelete}
+              />
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "center",
+                  padding: "12px 0 18px",
+                  borderTop: "1px solid var(--border)",
+                }}
               >
-                Retry
-              </button>
-            </div>
-          )}
-
-          {selectedIds.size > 0 && (
-            <BulkBar
-              selectedCount={selectedIds.size}
-              categories={flatCategories}
-              categoryId={bulkCategoryId}
-              tag={bulkTag}
-              working={bulkWorking}
-              onCategoryChange={setBulkCategoryId}
-              onTagChange={setBulkTag}
-              onCategorize={() => void runBulkAction("categorize")}
-              onAddTag={() => void runBulkAction("add_tag")}
-              onRemoveTag={() => void runBulkAction("remove_tag")}
-              onDelete={() => void runBulkAction("soft_delete")}
-              onClear={() => setSelectedIds(new Set())}
-            />
-          )}
-
-          <TransactionTable
-            transactions={transactions}
-            loading={loading}
-            selectedIds={selectedIds}
-            actionMenuId={actionMenuId}
-            onToggleSelected={toggleSelected}
-            onToggleAll={toggleAllVisible}
-            onToggleMenu={setActionMenuId}
-            onEdit={openEditModal}
-            onDelete={handleDelete}
-          />
-
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "center",
-              padding: "12px 0 18px",
-              borderTop: "1px solid var(--border)",
-            }}
-          >
-            {nextCursor ? (
-              <Button
-                variant="ghost"
-                disabled={loadingMore}
-                onClick={() => void loadTransactions(true)}
-              >
-                {loadingMore ? "Loading" : "Load More"}
-              </Button>
-            ) : (
-              <span style={mutedCapsStyle}>End of result set</span>
-            )}
-          </div>
+                {nextCursor ? (
+                  <Button
+                    variant="ghost"
+                    disabled={loadingMore}
+                    onClick={() => void loadTransactions(true)}
+                  >
+                    {loadingMore ? "Loading" : "Load More"}
+                  </Button>
+                ) : (
+                  <span style={mutedCapsStyle}>End of result set</span>
+                )}
+              </div>
             </>
           )}
         </main>
@@ -662,6 +1032,24 @@ export default function TransactionsPage() {
           categories={flatCategories}
           transactions={transactions}
           onAdd={openCreateModal}
+        />
+        <input
+          ref={importFileInputRef}
+          type="file"
+          accept=".csv"
+          style={{ display: "none" }}
+          onChange={handleImportFileChange}
+        />
+
+        <ImportCsvModal
+          open={importModalOpen}
+          rows={importRows}
+          parseErrors={importParseErrors}
+          importError={importError}
+          loading={importLoading}
+          onClose={closeImportModal}
+          onFileChange={handleImportFileChange}
+          onImport={handleImportSubmit}
         />
       </div>
 
@@ -1071,6 +1459,7 @@ function FilterSheet({
   onApply,
   onReset,
   onExport,
+  onImport,
   onBulkEntry,
   onClose,
 }: {
@@ -1081,6 +1470,7 @@ function FilterSheet({
   onApply: () => void;
   onReset: () => void;
   onExport: () => void;
+  onImport: () => void;
   onBulkEntry: () => void;
   onClose: () => void;
 }) {
@@ -1255,6 +1645,14 @@ function FilterSheet({
               <Button
                 type="button"
                 variant="ghost"
+                onClick={onImport}
+                style={{ width: "100%" }}
+              >
+                Import CSV
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
                 onClick={onBulkEntry}
                 style={{ width: "100%" }}
               >
@@ -1328,10 +1726,10 @@ function TransactionModalMobile({
     () =>
       sourceAccount && destinationAccount
         ? findLatestFxRate(
-            latestFxRates,
-            sourceAccount.currency,
-            destinationAccount.currency,
-          )
+          latestFxRates,
+          sourceAccount.currency,
+          destinationAccount.currency,
+        )
         : null,
     [destinationAccount, latestFxRates, sourceAccount],
   );
@@ -2205,6 +2603,149 @@ function BulkEntryPanel({
   );
 }
 
+function ImportCsvModal({
+  open,
+  rows,
+  parseErrors,
+  importError,
+  loading,
+  onClose,
+  onFileChange,
+  onImport,
+}: {
+  open: boolean;
+  rows: {
+    payload: BatchCreateItem;
+    preview: {
+      row: number;
+      date: string;
+      type: string;
+      account: string;
+      description: string;
+      amount: string;
+      category: string;
+      error?: string;
+    };
+  }[];
+  parseErrors: string[];
+  importError: string;
+  loading: boolean;
+  onClose: () => void;
+  onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onImport: () => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.4)",
+        zIndex: 1600,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          position: "absolute",
+          top: "50%",
+          left: "50%",
+          width: "min(680px, calc(100% - 32px))",
+          maxHeight: "80vh",
+          transform: "translate(-50%, -50%)",
+          background: "var(--bg2)",
+          border: "1px solid var(--border)",
+          borderRadius: 12,
+          overflow: "hidden",
+          boxShadow: "0 12px 32px rgba(0,0,0,0.15)",
+        }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 18px", borderBottom: "1px solid var(--border)" }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>Import Transactions</div>
+            <div style={{ marginTop: 6, fontSize: 13, color: "var(--text-muted)" }}>
+              Upload a CSV in the import-ready format. Empty categories are allowed and will be imported as Uncategorized.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{ background: "none", border: "none", color: "var(--text3)", fontSize: 20, cursor: "pointer" }}
+          >
+            ×
+          </button>
+        </div>
+
+        <div style={{ padding: "16px 18px", display: "grid", gap: 12, maxHeight: "calc(80vh - 90px)", overflowY: "auto" }}>
+          <div style={{ display: "grid", gap: 8 }}>
+            <label style={{ fontSize: 13, fontWeight: 600 }}>CSV File</label>
+            <input type="file" accept=".csv" onChange={onFileChange} />
+          </div>
+
+          <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
+            Use the import-ready CSV schema exported by the app. The row preview below shows the first few parsed rows.
+          </div>
+
+          {(parseErrors.length > 0 || importError) && (
+            <div style={{ background: "color-mix(in srgb, var(--red) 10%, var(--bg2))", border: "1px solid var(--red)", color: "var(--red)", padding: 12, borderRadius: 8 }}>
+              {parseErrors.map((error) => (
+                <div key={error}>{error}</div>
+              ))}
+              {importError && <div>{importError}</div>}
+            </div>
+          )}
+
+          <div style={{ display: "grid", gap: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+              <div style={{ fontWeight: 600 }}>Parsed rows</div>
+              <div style={{ color: "var(--text-muted)", fontSize: 12 }}>{rows.length} row{rows.length === 1 ? "" : "s"}</div>
+            </div>
+            {rows.length === 0 ? (
+              <div style={{ padding: 12, border: "1px solid var(--border)", borderRadius: 8, color: "var(--text-muted)" }}>
+                No rows parsed yet.
+              </div>
+            ) : (
+              <div style={{ padding: 12, border: "1px solid var(--border)", borderRadius: 8, background: "var(--bg3)", display: "grid", gap: 8 }}>
+                {rows.slice(0, 5).map((row) => (
+                  <div key={row.preview.row} style={{ display: "grid", gap: 4, padding: 8, borderRadius: 8, background: row.preview.error ? "color-mix(in srgb, var(--red) 10%, var(--bg3))" : "var(--bg2)", border: row.preview.error ? "1px solid var(--red)" : "1px solid transparent" }}>
+                    <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 12, fontWeight: 600 }}>Row {row.preview.row}</span>
+                      <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{row.preview.type}</span>
+                      <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{row.preview.account}</span>
+                      <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{row.preview.amount}</span>
+                    </div>
+                    <div style={{ display: "grid", gap: 2, fontSize: 12 }}>
+                      <div>{row.preview.description}</div>
+                      <div style={{ color: "var(--text-muted)" }}>{row.preview.category}</div>
+                      {row.preview.error && <div style={{ color: "var(--red)", fontSize: 11 }}>{row.preview.error}</div>}
+                    </div>
+                  </div>
+                ))}
+                {rows.length > 5 && (
+                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                    Showing first 5 rows.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 8 }}>
+            <Button type="button" variant="ghost" onClick={onClose} disabled={loading}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={onImport} disabled={loading || rows.length === 0 || rows.some((row) => row.preview.error)}>
+              {loading ? "Importing…" : "Import CSV"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const cellInputStyle: CSSProperties = {
   width: "100%",
   background: "transparent",
@@ -2238,6 +2779,7 @@ function FilterBar({
   onApply,
   onReset,
   onExport,
+  onImport,
   onAdd,
   onBulkEntry,
 }: {
@@ -2248,6 +2790,7 @@ function FilterBar({
   onApply: () => void;
   onReset: () => void;
   onExport: () => void;
+  onImport: () => void;
   onAdd: () => void;
   onBulkEntry: () => void;
 }) {
@@ -2366,6 +2909,9 @@ function FilterBar({
         <div style={{ display: "flex", gap: 8 }}>
           <Button type="button" variant="ghost" onClick={onExport}>
             Export CSV
+          </Button>
+          <Button type="button" variant="ghost" onClick={onImport}>
+            Import CSV
           </Button>
           <Button type="button" variant="ghost" onClick={onBulkEntry}>
             Bulk Entry
@@ -2777,10 +3323,10 @@ function TransactionModal({
     () =>
       sourceAccount && destinationAccount
         ? findLatestFxRate(
-            latestFxRates,
-            sourceAccount.currency,
-            destinationAccount.currency,
-          )
+          latestFxRates,
+          sourceAccount.currency,
+          destinationAccount.currency,
+        )
         : null,
     [destinationAccount, latestFxRates, sourceAccount],
   );
@@ -3372,10 +3918,10 @@ function buildTransactionPayload(
   const splitMode = form.splitMode && canSplitType(form.type);
   const splits = splitMode
     ? form.splits.map((split) => ({
-        category_id: split.categoryId,
-        amount_paise: parseMoneyInput(split.amount),
-        notes: split.notes.trim() ? split.notes.trim() : null,
-      }))
+      category_id: split.categoryId,
+      amount_paise: parseMoneyInput(split.amount),
+      notes: split.notes.trim() ? split.notes.trim() : null,
+    }))
     : [];
 
   if (splitMode) {

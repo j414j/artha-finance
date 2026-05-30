@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use axum::{
     extract::{Path, Query, State},
-    http::{header, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{get, patch, post},
     Json, Router,
@@ -33,6 +33,7 @@ use crate::{
     },
     state::AppState,
 };
+use super::{accounts, categories};
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -350,10 +351,27 @@ async fn bulk_transactions(
 struct BatchCreateItem {
     date: Option<String>,
     account_id: Option<String>,
+    account_name: Option<String>,
+    transfer_account_id: Option<String>,
+    transfer_account_name: Option<String>,
+    #[serde(rename = "type")]
+    transaction_type: Option<String>,
     description: Option<String>,
     amount_paise: Option<i64>,
     category_id: Option<String>,
+    category_name: Option<String>,
     notes: Option<String>,
+    tags: Option<Vec<String>>,
+    splits: Option<Vec<TransactionSplitInput>>,
+    is_recurring: Option<bool>,
+    recurrence_frequency: Option<String>,
+    fx_rate: Option<f64>,
+    fx_to_amount_paise: Option<i64>,
+    fx_fee_paise: Option<i64>,
+    instrument_id: Option<String>,
+    quantity: Option<f64>,
+    price_per_unit_paise: Option<i64>,
+    fees_paise: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -382,26 +400,69 @@ async fn batch_create_transactions(
     let mut row_errors: Vec<BatchRowError> = Vec::new();
 
     for (i, item) in req.transactions.iter().enumerate() {
+        let account_name = item.account_name.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(String::from);
+        let category_name = item.category_name.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(String::from);
+        let account_id = item.account_id.clone().filter(|id| !id.trim().is_empty());
+        let category_id = item.category_id.clone().filter(|id| !id.trim().is_empty());
+
+        let resolved_account_id = match account_id {
+            Some(id) => Some(id),
+            None => match account_name {
+                Some(ref name) => {
+                    accounts::fetch_active_account_by_name(&state.db, &user.id, name)
+                        .await?
+                        .map(|account| account.id)
+                }
+                None => None,
+            },
+        };
+
+        if resolved_account_id.is_none() {
+            row_errors.push(BatchRowError {
+                row: i,
+                message: match account_name {
+                    Some(name) => format!("Account '{}' not found", name),
+                    None => "Missing account_id or account_name".into(),
+                },
+            });
+            continue;
+        }
+
+        let resolved_category_id = match category_id {
+            Some(id) => Some(id),
+            None => match category_name {
+                Some(ref name) => {
+                    categories::fetch_active_category_by_name(&state.db, &user.id, name)
+                        .await?
+                        .map(|category| category.id)
+                }
+                None => None,
+            },
+        };
+
         let parts = TransactionInputParts {
-            account_id: item.account_id.clone().unwrap_or_default(),
-            transfer_account_id: None,
-            transaction_type: "expense".to_string(),
+            account_id: resolved_account_id.unwrap(),
+            transfer_account_id: item.transfer_account_id.clone(),
+            transaction_type: item
+                .transaction_type
+                .clone()
+                .unwrap_or_else(|| "expense".to_string()),
             date: item.date.clone().unwrap_or_default(),
             description: item.description.clone().unwrap_or_default(),
             amount_paise: item.amount_paise.unwrap_or(0),
-            category_id: item.category_id.clone(),
+            category_id: resolved_category_id,
             notes: item.notes.clone(),
-            tags: vec![],
-            splits: vec![],
-            is_recurring: false,
-            recurrence_frequency: None,
-            fx_rate: None,
-            fx_to_amount_paise: None,
-            fx_fee_paise: None,
-            instrument_id: None,
-            quantity: None,
-            price_per_unit_paise: None,
-            fees_paise: None,
+            tags: item.tags.clone().unwrap_or_default(),
+            splits: item.splits.clone().unwrap_or_default(),
+            is_recurring: item.is_recurring.unwrap_or(false),
+            recurrence_frequency: item.recurrence_frequency.clone(),
+            fx_rate: item.fx_rate,
+            fx_to_amount_paise: item.fx_to_amount_paise,
+            fx_fee_paise: item.fx_fee_paise,
+            instrument_id: item.instrument_id.clone(),
+            quantity: item.quantity,
+            price_per_unit_paise: item.price_per_unit_paise,
+            fees_paise: item.fees_paise,
         };
 
         match validate_transaction_input(&state.db, &user.id, parts).await {
@@ -457,23 +518,29 @@ async fn export_transactions_csv(
     AuthUser(user): AuthUser,
     Query(query): Query<TransactionListQuery>,
 ) -> Result<impl IntoResponse> {
+    let format = query.format.clone();
     let mut filters = NormalizedTransactionQuery::from_query(query, false)?;
     filters.limit = 10_000;
     let mut rows = fetch_transaction_rows(&state.db, &user.id, &filters).await?;
     rows.truncate(10_000);
     let transactions = hydrate_transaction_views(&state.db, &user.id, rows).await?;
-    let body = transactions_to_csv(&transactions);
+    let (body, filename) = if format.as_deref() == Some("import") {
+        (transactions_to_import_csv(&transactions), "artha-transactions-import.csv")
+    } else {
+        (transactions_to_csv(&transactions), "artha-transactions.csv")
+    };
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        header::HeaderValue::from_static("text/csv; charset=utf-8"),
+    );
+    let disposition = format!("attachment; filename=\"{}\"", filename);
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        header::HeaderValue::from_str(&disposition).unwrap(),
+    );
 
-    Ok((
-        [
-            (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
-            (
-                header::CONTENT_DISPOSITION,
-                "attachment; filename=\"artha-transactions.csv\"",
-            ),
-        ],
-        body,
-    ))
+    Ok((headers, body))
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -486,6 +553,7 @@ struct TransactionListQuery {
     category_id: Option<String>,
     #[serde(rename = "type")]
     transaction_type: Option<String>,
+    format: Option<String>,
     tag: Option<String>,
     search: Option<String>,
     amount_min: Option<i64>,
@@ -1164,9 +1232,10 @@ async fn validate_transaction_category(
             validate_category_for_transaction(Some(&category), transaction_type, false)?;
             Ok(Some(category.id))
         }
-        (None, Some(expected)) => Err(AppError::BadRequest(format!(
-            "{transaction_type} transactions require a {expected} category"
-        ))),
+        (None, Some(_)) => {
+            // Allow uncategorized expense/income/dividend rows for CSV import and low-friction entry.
+            Ok(None)
+        }
         (Some(_), None) => Err(AppError::BadRequest(
             "This transaction type does not support categories".into(),
         )),
@@ -2687,6 +2756,110 @@ fn transactions_to_csv(transactions: &[TransactionView]) -> String {
             transaction.amount_paise.to_string(),
             transaction.tags.join(" "),
             transaction.notes.clone().unwrap_or_default(),
+        ]));
+    }
+
+    csv
+}
+
+fn transactions_to_import_csv(transactions: &[TransactionView]) -> String {
+    let mut csv = String::from(
+        "date,type,account_id,account_name,transfer_account_id,transfer_account_name,description,amount_paise,amount,category_id,category_name,notes,tags,is_recurring,recurrence_frequency,fx_rate,fx_to_amount_paise,fx_fee_paise,instrument_id,instrument_name,quantity,price_per_unit_paise,fees_paise,splits\n",
+    );
+
+    for transaction in transactions {
+        let transfer_account_id = transaction.transfer_account_id.clone().unwrap_or_default();
+        let transfer_account_name = transaction
+            .transfer_account_name
+            .clone()
+            .unwrap_or_default();
+        let category_id = transaction.category_id.clone().unwrap_or_default();
+        let category_name = transaction.category_name.clone().unwrap_or_default();
+        let splits = if transaction.splits.is_empty() {
+            String::new()
+        } else {
+            transaction
+                .splits
+                .iter()
+                .map(|split| {
+                    let split_category_id = split.category_id.clone().unwrap_or_default();
+                    let split_category_name = split.category_name.clone().unwrap_or_default();
+                    format!(
+                        "{}:{}",
+                        if !split_category_id.is_empty() {
+                            split_category_id
+                        } else {
+                            split_category_name
+                        },
+                        split.amount_paise
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(";")
+        };
+        let amount = format!("{:.2}", transaction.amount_paise as f64 / 100.0);
+        let recurrence_frequency = transaction
+            .recurrence_frequency
+            .clone()
+            .unwrap_or_default();
+        let fx_rate = transaction.fx_rate.map(|rate| rate.to_string()).unwrap_or_default();
+        let fx_to_amount_paise = transaction
+            .fx_to_amount_paise
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        let fx_fee_paise = transaction.fx_fee_paise.to_string();
+        let instrument_id = transaction
+            .investment_detail
+            .as_ref()
+            .map(|detail| detail.instrument_id.clone())
+            .unwrap_or_default();
+        let instrument_name = transaction
+            .investment_detail
+            .as_ref()
+            .map(|detail| detail.instrument_name.clone())
+            .unwrap_or_default();
+        let quantity = transaction
+            .investment_detail
+            .as_ref()
+            .map(|detail| detail.quantity.to_string())
+            .unwrap_or_default();
+        let price_per_unit_paise = transaction
+            .investment_detail
+            .as_ref()
+            .map(|detail| detail.price_per_unit_paise.to_string())
+            .unwrap_or_default();
+        let fees_paise = transaction
+            .investment_detail
+            .as_ref()
+            .map(|detail| detail.fees_paise.to_string())
+            .unwrap_or_default();
+        let is_recurring = if transaction.is_recurring { "true" } else { "false" };
+
+        csv.push_str(&csv_row(&[
+            transaction.date.clone(),
+            transaction.transaction_type.clone(),
+            transaction.account_id.clone(),
+            transaction.account_name.clone(),
+            transfer_account_id,
+            transfer_account_name,
+            transaction.description.clone(),
+            transaction.amount_paise.to_string(),
+            amount,
+            category_id,
+            category_name,
+            transaction.notes.clone().unwrap_or_default(),
+            transaction.tags.join(" "),
+            is_recurring.to_string(),
+            recurrence_frequency,
+            fx_rate,
+            fx_to_amount_paise,
+            fx_fee_paise,
+            instrument_id,
+            instrument_name,
+            quantity,
+            price_per_unit_paise,
+            fees_paise,
+            splits,
         ]));
     }
 
