@@ -3,6 +3,7 @@ use axum::{routing::get, Json, Router};
 use serde_json::{json, Value};
 use std::net::SocketAddr;
 use tower_http::cors::CorsLayer;
+use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -35,6 +36,11 @@ async fn main() {
 
     let state = AppState { db: pool };
 
+    let static_dir = std::env::var("STATIC_DIR").unwrap_or_else(|_| "../frontend/dist".into());
+
+    let serve_dir = ServeDir::new(&static_dir)
+        .fallback(ServeFile::new(format!("{static_dir}/index.html")));
+
     let app = Router::new()
         .route("/api/v1/health", get(health_check))
         .nest("/api/v1/auth", routes::auth::router())
@@ -55,6 +61,7 @@ async fn main() {
         .nest("/api/v1/investments", routes::investments::router())
         .nest("/api/v1/insights", routes::insights::router())
         .with_state(state)
+        .fallback_service(serve_dir)
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive());
 
