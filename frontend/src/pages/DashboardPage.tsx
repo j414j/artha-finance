@@ -1,12 +1,17 @@
 import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
-import { getAccounts } from '../api/accounts'
+import {
+  ResponsiveContainer, AreaChart, Area,
+  BarChart, Bar,
+  XAxis, YAxis, CartesianGrid, Tooltip,
+} from 'recharts'
+import { getAccounts, getAccountBalanceHistory } from '../api/accounts'
 import { getBudget, getBudgetHistory } from '../api/budget'
 import { getInsights } from '../api/insights'
 import { getTransactions } from '../api/transactions'
-import type { AccountsResponse } from '../types/account'
-import type { BudgetHistory, BudgetItem, BudgetMonth, SavingsRatePoint } from '../types/budget'
+import type { Account, AccountsResponse, BalanceHistoryPoint } from '../types/account'
+import type { BudgetHistory, BudgetItem, BudgetMonth } from '../types/budget'
 import type { Insight } from '../types/insights'
 import type { Transaction } from '../types/transaction'
 import { formatMoney } from '../utils/format'
@@ -125,32 +130,86 @@ function budgetStatusColor(status: BudgetItem['status']): string {
   return 'var(--green)'
 }
 
-// Compute estimated historical net worth by walking backwards from current using budget history
-function computeNetWorthHistory(currentNW: number, trend: SavingsRatePoint[]): number[] {
-  if (trend.length === 0) return [currentNW]
-  const points: number[] = []
-  let nw = currentNW
-  const reversed = [...trend].reverse() // newest → oldest
-  for (const month of reversed) {
-    points.unshift(nw)
-    nw = nw - (month.income_paise - month.expense_paise)
-  }
-  return points
-}
-
-function svgPolyline(values: number[], svgW: number, top: number, bottom: number): string {
+function svgPolyline(values: number[], w: number, top: number, bottom: number): string {
   const n = values.length
   if (n === 0) return ''
-  const min = Math.min(...values)
-  const max = Math.max(...values)
-  const range = max - min || 1
-  return values
-    .map((v, i) => {
-      const x = n === 1 ? svgW / 2 : (i / (n - 1)) * svgW
-      const y = bottom - ((v - min) / range) * (bottom - top)
-      return `${x.toFixed(1)},${y.toFixed(1)}`
-    })
-    .join(' ')
+  const min = Math.min(...values), max = Math.max(...values), range = max - min || 1
+  return values.map((v, i) => {
+    const x = n === 1 ? w / 2 : (i / (n - 1)) * w
+    const y = bottom - ((v - min) / range) * (bottom - top)
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  }).join(' ')
+}
+
+const AXIS_TICK = { fill: 'var(--text3)', fontSize: 9, fontFamily: 'IBM Plex Mono' } as const
+const GRID_PROPS = { stroke: '#1e2535', strokeDasharray: '3 3' }
+
+function ChartTooltip({ active, payload, label }: {
+  active?: boolean
+  payload?: Array<{ name: string; value: number; color: string }>
+  label?: string
+}) {
+  if (!active || !payload?.length) return null
+  return (
+    <div style={{ background: 'var(--bg3)', border: '1px solid var(--border2)', padding: '6px 10px', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text)' }}>
+      <div style={{ color: 'var(--text3)', marginBottom: 4, fontSize: 10, fontFamily: 'var(--font-cond)' }}>{label}</div>
+      {payload.map((p, i) => (
+        <div key={i} style={{ color: p.color }}>{p.name}: {formatMoney(p.value, 'INR', true)}</div>
+      ))}
+    </div>
+  )
+}
+
+// Build daily net worth series from real account balance histories.
+function buildNWHistory(
+  accounts: Account[],
+  histories: Map<string, BalanceHistoryPoint[]>,
+): Array<{ date: string; label: string; 'Net Worth': number; Assets: number; Liabilities: number }> {
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  const dateSet = new Set<string>()
+  for (const [, pts] of histories) {
+    for (const pt of pts) dateSet.add(pt.date)
+  }
+  const sortedDates = [...dateSet].sort()
+  if (sortedDates.length === 0) return []
+
+  // Scale factor: current inr_value / current raw balance (handles FX & investment accounts)
+  const inrScale = new Map<string, number>()
+  for (const acc of accounts) {
+    const pts = histories.get(acc.id) ?? []
+    const latest = pts[pts.length - 1]
+    const latestRaw = latest ? (latest.total_paise ?? latest.balance_paise) : acc.balance_paise
+    inrScale.set(acc.id, latestRaw !== 0 ? acc.inr_value_paise / latestRaw : 1)
+  }
+
+  const accMaps = new Map<string, Map<string, number>>()
+  for (const acc of accounts) {
+    const m = new Map<string, number>()
+    for (const pt of histories.get(acc.id) ?? []) {
+      m.set(pt.date, pt.total_paise ?? pt.balance_paise)
+    }
+    accMaps.set(acc.id, m)
+  }
+
+  const lastKnown = new Map<string, number>()
+  for (const acc of accounts) {
+    const scale = inrScale.get(acc.id) ?? 1
+    lastKnown.set(acc.id, scale !== 0 ? Math.round(acc.inr_value_paise / scale) : acc.balance_paise)
+  }
+
+  return sortedDates.map(date => {
+    let assets = 0, liabilities = 0
+    for (const acc of accounts) {
+      const m = accMaps.get(acc.id)!
+      if (m.has(date)) lastKnown.set(acc.id, m.get(date)!)
+      const inrVal = Math.round((lastKnown.get(acc.id) ?? 0) * (inrScale.get(acc.id) ?? 1))
+      if (acc.side === 'asset') assets += inrVal
+      else liabilities += inrVal
+    }
+    const [, mm, dd] = date.split('-')
+    const label = dd === '01' ? (MONTHS[parseInt(mm) - 1] ?? '') : ''
+    return { date, label, 'Net Worth': assets - liabilities, Assets: assets, Liabilities: liabilities }
+  })
 }
 
 export default function DashboardPage() {
@@ -163,6 +222,7 @@ export default function DashboardPage() {
   const [insightsLoading, setInsightsLoading] = useState(true)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [histories, setHistories] = useState<Map<string, BalanceHistoryPoint[]>>(new Map())
 
   useEffect(() => {
     const { year, month } = currentPeriod()
@@ -174,11 +234,21 @@ export default function DashboardPage() {
       getTransactions({ limit: 10 }),
       getBudgetHistory(year, month, 13),
     ])
-      .then(([accs, bud, txs, hist]) => {
+      .then(async ([accs, bud, txs, hist]) => {
         setAccountsData(accs)
         setBudget(bud.budget)
         setRecentTxs(txs.transactions)
         setHistory(hist.history)
+        const allAccounts: Account[] = [
+          ...accs.asset_groups.flatMap(g => g.accounts),
+          ...accs.liability_groups.flatMap(g => g.accounts),
+        ]
+        const entries = await Promise.all(
+          allAccounts.map(acc =>
+            getAccountBalanceHistory(acc.id, 180).then(r => [acc.id, r.balance_history] as const)
+          )
+        )
+        setHistories(new Map(entries))
       })
       .catch(e => setError(e?.message ?? 'Failed to load dashboard'))
       .finally(() => setLoading(false))
@@ -219,106 +289,68 @@ export default function DashboardPage() {
   }))
 
   const trend = history?.savings_rate_trend ?? []
-  const nwHistory = computeNetWorthHistory(netWorth, trend)
-  const prevMonthNW = nwHistory.length >= 2 ? nwHistory[nwHistory.length - 2] : null
+
+  const allAccounts: Account[] = [
+    ...assetGroups.flatMap(g => g.accounts),
+    ...liabilityGroups.flatMap(g => g.accounts),
+  ]
+  const nwSeries = buildNWHistory(allAccounts, histories)
+  // MoM change: compare last two distinct month-start points
+  const monthPoints = nwSeries.filter(p => p.label !== '')
+  const prevMonthNW = monthPoints.length >= 2 ? monthPoints[monthPoints.length - 2]['Net Worth'] : null
   const nwChange = prevMonthNW !== null ? netWorth - prevMonthNW : null
   const nwChangePct = prevMonthNW != null && prevMonthNW !== 0 ? ((netWorth - prevMonthNW) / prevMonthNW) * 100 : null
 
-  const sparkPts = svgPolyline(nwHistory, 240, 2, 30)
-  const sparkArea = sparkPts ? sparkPts + ' 240,36 0,36' : ''
+  // Thin out daily points to one per week for chart performance (keep month labels)
+  const nwChartData = nwSeries.filter((p, i) => p.label !== '' || i % 7 === 0 || i === nwSeries.length - 1)
 
-  const assetsHistory = nwHistory.map(nw => nw + totalLiabilities)
-  const liabValues = nwHistory.map(() => totalLiabilities)
-  const allChartValues = [...nwHistory, ...assetsHistory, ...liabValues]
-  const chartMin = Math.min(...allChartValues)
-  const chartMax = Math.max(...allChartValues)
-  const chartRange = chartMax - chartMin || 1
-  const chartN = nwHistory.length
+  // Sparkline values for the mini hero chart
+  const sparkValues = nwSeries.map(p => p['Net Worth'])
 
-  function chartY(v: number): number {
-    return 115 - ((v - chartMin) / chartRange) * 100
-  }
-  function chartX(i: number): number {
-    return chartN <= 1 ? 230 : (i / (chartN - 1)) * 460
-  }
-
-  const nwChartPts = nwHistory.map((v, i) => `${chartX(i).toFixed(1)},${chartY(v).toFixed(1)}`).join(' ')
-  const nwChartArea = nwChartPts ? nwChartPts + ` ${chartX(chartN - 1).toFixed(1)},130 0,130` : ''
-  const assetsChartPts = assetsHistory.map((v, i) => `${chartX(i).toFixed(1)},${chartY(v).toFixed(1)}`).join(' ')
-  const liabChartPts = liabValues.map((v, i) => `${chartX(i).toFixed(1)},${chartY(v).toFixed(1)}`).join(' ')
-  const chartLabels = trend.map((t, i) => ({ label: t.label.split(' ')[0], i }))
-
-  const cfMonths = trend.slice(-6)
-  const maxCF = Math.max(...cfMonths.map(m => Math.max(m.income_paise, m.expense_paise)), 1)
-  const barMaxH = 95
-  const cfGroupW = 460 / Math.max(cfMonths.length, 1)
+  const cfChartData = trend.slice(-6).map(m => ({
+    month: m.label.split(' ')[0],
+    Income: m.income_paise,
+    Expenses: m.expense_paise,
+  }))
 
   // ── Shared sub-components (used by both layouts) ─────────────────────────
 
   const NWChart = (
-    <svg width="100%" height="148" viewBox="0 0 460 148" preserveAspectRatio="none">
-      <defs>
-        <linearGradient id="nw-area-grad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#f0a500" />
-          <stop offset="100%" stopColor="transparent" />
-        </linearGradient>
-      </defs>
-      <line x1="0" y1="25" x2="460" y2="25" stroke="var(--border)" strokeWidth="1" />
-      <line x1="0" y1="65" x2="460" y2="65" stroke="var(--border)" strokeWidth="1" />
-      <line x1="0" y1="105" x2="460" y2="105" stroke="var(--border)" strokeWidth="1" />
-      {nwChartArea && <polygon points={nwChartArea} fill="url(#nw-area-grad)" opacity="0.2" />}
-      {assetsChartPts && (
-        <polyline points={assetsChartPts} fill="none" stroke="var(--blue)" strokeWidth="1" strokeDasharray="4 2" opacity="0.6" />
-      )}
-      {nwChartPts && (
-        <polyline points={nwChartPts} fill="none" stroke="var(--accent)" strokeWidth="2" />
-      )}
-      {liabChartPts && (
-        <polyline points={liabChartPts} fill="none" stroke="var(--red)" strokeWidth="1" opacity="0.5" />
-      )}
-      {chartLabels.map(({ label, i }) => {
-        if (i % 2 !== 0 && i !== chartLabels.length - 1) return null
-        const x = chartX(i)
-        const isLast = i === chartLabels.length - 1
-        return (
-          <text key={i} x={x} y="146" fontSize="8" fill={isLast ? '#f0a500' : '#4a5878'} textAnchor={isLast ? 'end' : 'start'}>
-            {label}
-          </text>
-        )
-      })}
-      <text x="4" y="14" fontSize="8" fill="var(--blue)">── Assets</text>
-      <text x="70" y="14" fontSize="8" fill="var(--accent)">── Net Worth</text>
-      <text x="165" y="14" fontSize="8" fill="var(--red)">── Liabilities</text>
-    </svg>
+    <ResponsiveContainer width="100%" height={160}>
+      <AreaChart data={nwChartData} margin={{ top: 6, right: 6, bottom: 0, left: 0 }}>
+        <defs>
+          <linearGradient id="nw-dash-grad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.25} />
+            <stop offset="100%" stopColor="var(--accent)" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid {...GRID_PROPS} />
+        <XAxis dataKey="label" tick={AXIS_TICK} tickLine={false} axisLine={false} interval={0} />
+        <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false}
+          tickFormatter={v => formatMoney(v, 'INR', true)} width={52} />
+        <Tooltip content={<ChartTooltip />} />
+        <Area type="monotone" dataKey="Assets" stroke="var(--blue)" strokeWidth={1}
+          strokeDasharray="4 2" fill="none" dot={false} />
+        <Area type="monotone" dataKey="Liabilities" stroke="var(--red)" strokeWidth={1}
+          fill="none" dot={false} opacity={0.6} />
+        <Area type="monotone" dataKey="Net Worth" stroke="var(--accent)" strokeWidth={2}
+          fill="url(#nw-dash-grad)" dot={false} />
+      </AreaChart>
+    </ResponsiveContainer>
   )
 
   const CFChart = (
-    <svg width="100%" height="155" viewBox="0 0 460 155" preserveAspectRatio="none">
-      {cfMonths.map((m, i) => {
-        const isLast = i === cfMonths.length - 1
-        const groupX = i * cfGroupW
-        const barW = Math.min(22, (cfGroupW - 8) / 2)
-        const incH = Math.max(2, (m.income_paise / maxCF) * barMaxH)
-        const expH = Math.max(2, (m.expense_paise / maxCF) * barMaxH)
-        const incX = groupX + (cfGroupW / 2 - barW - 1)
-        const expX = incX + barW + 2
-        const labelX = groupX + cfGroupW / 2
-        return (
-          <g key={i}>
-            <rect x={incX} y={120 - incH} width={barW} height={incH} fill="var(--green)" opacity={isLast ? 1 : 0.7} />
-            <rect x={expX} y={120 - expH} width={barW} height={expH} fill="var(--red)" opacity={isLast ? 1 : 0.7} />
-            <text x={labelX} y="133" fontSize="8" fill={isLast ? '#f0a500' : '#4a5878'} textAnchor="middle">
-              {m.label.split(' ')[0]}
-            </text>
-          </g>
-        )
-      })}
-      {cfMonths.length === 0 && <text x="230" y="70" fontSize="10" fill="#4a5878" textAnchor="middle">No data</text>}
-      <rect x="0" y="142" width="8" height="5" fill="var(--green)" opacity="0.7" />
-      <text x="12" y="148" fontSize="8" fill="#7a8fb5">Income</text>
-      <rect x="56" y="142" width="8" height="5" fill="var(--red)" opacity="0.7" />
-      <text x="68" y="148" fontSize="8" fill="#7a8fb5">Expenses</text>
-    </svg>
+    <ResponsiveContainer width="100%" height={160}>
+      <BarChart data={cfChartData} margin={{ top: 6, right: 6, bottom: 0, left: 0 }} barCategoryGap="30%">
+        <CartesianGrid {...GRID_PROPS} />
+        <XAxis dataKey="month" tick={AXIS_TICK} tickLine={false} axisLine={false} />
+        <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false}
+          tickFormatter={v => formatMoney(v, 'INR', true)} width={52} />
+        <Tooltip content={<ChartTooltip />} />
+        <Bar dataKey="Income" fill="var(--green)" maxBarSize={18} radius={[1, 1, 0, 0]} />
+        <Bar dataKey="Expenses" fill="var(--red)" maxBarSize={18} radius={[1, 1, 0, 0]} />
+      </BarChart>
+    </ResponsiveContainer>
   )
 
   // ── Mobile layout ─────────────────────────────────────────────────────────
@@ -376,7 +408,7 @@ export default function DashboardPage() {
                 </linearGradient>
               </defs>
               {(() => {
-                const pts = svgPolyline(nwHistory, 320, 2, 36)
+                const pts = svgPolyline(sparkValues, 320, 2, 36)
                 const area = pts ? pts + ' 320,40 0,40' : ''
                 return (
                   <>
@@ -611,12 +643,16 @@ export default function DashboardPage() {
                   <stop offset="100%" stopColor="transparent" />
                 </linearGradient>
               </defs>
-              {sparkArea && (
-                <polygon points={sparkArea} fill="url(#spark-grad)" opacity="0.15" />
-              )}
-              {sparkPts && (
-                <polyline points={sparkPts} fill="none" stroke="var(--accent)" strokeWidth="1.5" opacity="0.9" />
-              )}
+              {(() => {
+                const pts = svgPolyline(sparkValues, 240, 2, 30)
+                const area = pts ? pts + ' 240,36 0,36' : ''
+                return (
+                  <>
+                    {area && <polygon points={area} fill="url(#spark-grad)" opacity="0.15" />}
+                    {pts && <polyline points={pts} fill="none" stroke="var(--accent)" strokeWidth="1.5" opacity="0.9" />}
+                  </>
+                )
+              })()}
             </svg>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text3)', marginTop: 2 }}>
               12M NET WORTH TREND
