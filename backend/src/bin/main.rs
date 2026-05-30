@@ -53,6 +53,7 @@ async fn main() {
             routes::instruments::corporate_actions_router(),
         )
         .nest("/api/v1/investments", routes::investments::router())
+        .nest("/api/v1/insights", routes::insights::router())
         .with_state(state)
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive());

@@ -7,7 +7,7 @@ const CURRENCY_SYMBOLS: Record<string, string> = {
 
 export function formatMoney(paise: number, currency = 'INR', compact = false): string {
   const sign = paise < 0 ? '-' : ''
-  const value = BigInt(Math.abs(paise))
+  const value = BigInt(Math.round(Math.abs(paise)))
   const units = value / 100n
   const fraction = value % 100n
   const symbol = CURRENCY_SYMBOLS[currency] ?? `${currency} `
@@ -32,7 +32,7 @@ export function formatDateDisplay(value: string): string {
 
 export function paiseToInput(paise: number): string {
   const sign = paise < 0 ? '-' : ''
-  const value = BigInt(Math.abs(paise))
+  const value = BigInt(Math.round(Math.abs(paise)))
   const units = value / 100n
   const fraction = value % 100n
   return fraction === 0n

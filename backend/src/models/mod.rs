@@ -5,6 +5,7 @@ pub mod budget;
 pub mod category;
 pub mod fx_rate;
 pub mod goal;
+pub mod insights;
 pub mod instrument;
 pub mod transaction;
 pub mod user;

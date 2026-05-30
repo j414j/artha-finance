@@ -1542,3 +1542,66 @@ Returns dividend income aggregated by calendar month.
 ```
 
 Sums all transactions with `type = 'dividend'` and groups them by the `YYYY-MM` prefix of the transaction date. Only includes months with at least one dividend transaction. Ordered chronologically.
+
+---
+
+## Insights
+
+### GET /api/v1/insights
+
+Returns spending insights and anomalies for the specified month.
+
+**Query params**: `year` (integer), `month` (integer 1–12). Both optional — defaults to current server month.
+
+**Response 200**
+```json
+{
+  "insights": [
+    {
+      "insight_type": "spend_spike",
+      "severity": "warning",
+      "title": "Dining Out spend spike",
+      "body": "₹4,200 this month vs ₹1,800 avg (3M) — 2.3× above normal",
+      "category_id": "uuid",
+      "amount_paise": 420000
+    },
+    {
+      "insight_type": "budget_burn_risk",
+      "severity": "warning",
+      "title": "Groceries budget nearly exhausted",
+      "body": "85% used with 12 days remaining in the month",
+      "category_id": "uuid",
+      "amount_paise": 1020000
+    },
+    {
+      "insight_type": "unbudgeted_high_spend",
+      "severity": "info",
+      "title": "Unbudgeted: Entertainment",
+      "body": "₹3,400 spent with no budget allocation",
+      "category_id": "uuid",
+      "amount_paise": 340000
+    },
+    {
+      "insight_type": "large_transaction",
+      "severity": "info",
+      "title": "Large Electronics transaction",
+      "body": "MacBook Pro — 4.2× your typical spend in this category",
+      "category_id": "uuid",
+      "amount_paise": 12000000
+    }
+  ]
+}
+```
+
+**Insight types**
+
+| `insight_type` | `severity` | Condition |
+|---|---|---|
+| `spend_spike` | `warning` | Category spend > 1.5× trailing 3M average AND delta > ₹500 |
+| `budget_burn_risk` | `warning` | Budget >80% used with >40% of month remaining (current month only) |
+| `unbudgeted_high_spend` | `info` | Category with ≥ ₹1,000 spend and no budget allocation |
+| `large_transaction` | `info` | Single transaction > 3× category's average transaction size (prior 3M) AND > ₹500 |
+
+Results are sorted: `warning` before `info`, then by `amount_paise` descending. Each type is capped to avoid noise (max 3 spend spikes, max 3 large transactions, max 5 unbudgeted).
+
+**Errors**: `UNAUTHORIZED`, `BAD_REQUEST`

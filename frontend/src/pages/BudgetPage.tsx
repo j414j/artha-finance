@@ -8,8 +8,10 @@ import {
   updateBaseBudget,
   updateMonthlyBudget,
 } from "../api/budget";
+import { getInsights } from "../api/insights";
 import { ApiError } from "../api/client";
 import Button from "../components/Button";
+import InsightsPanel from "../components/InsightsPanel";
 import ProgressBar from "../components/ProgressBar";
 import type {
   BudgetAllocationPayload,
@@ -23,6 +25,7 @@ import type {
   SavingsRatePoint,
   UnbudgetedSpend,
 } from "../types/budget";
+import type { Insight } from "../types/insights";
 import { formatMoney, paiseToInput, parseMoneyInput } from "../utils/format";
 import BlurredValue from "../components/BlurredValue";
 
@@ -47,6 +50,8 @@ export default function BudgetPage() {
   const [budget, setBudget] = useState<BudgetMonth | null>(null);
   const [baseAllocations, setBaseAllocations] = useState<BudgetBaseAllocation[]>([]);
   const [history, setHistory] = useState<BudgetHistory | null>(null);
+  const [insights, setInsights] = useState<Insight[]>([]);
+  const [insightsLoading, setInsightsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [modalMode, setModalMode] = useState<ModalMode | null>(null);
@@ -56,6 +61,7 @@ export default function BudgetPage() {
 
   const loadBudget = useCallback(async () => {
     setLoading(true);
+    setInsightsLoading(true);
     setError("");
     try {
       const [budgetResponse, baseResponse, historyResponse] = await Promise.all([
@@ -71,6 +77,10 @@ export default function BudgetPage() {
     } finally {
       setLoading(false);
     }
+    getInsights(period.year, period.month)
+      .then((r) => setInsights(r.insights))
+      .catch(() => setInsights([]))
+      .finally(() => setInsightsLoading(false));
   }, [period]);
 
   useEffect(() => {
@@ -149,6 +159,9 @@ export default function BudgetPage() {
         <main style={{ background: "var(--bg2)", minWidth: 0 }}>
           {budget && <SummaryStrip budget={budget} isMobile={isMobile} />}
 
+          <InsightsPanel insights={insights} loading={insightsLoading} />
+
+          <SectionHeader>Budget Allocations</SectionHeader>
           {loading ? (
             <EmptyPanel label="Loading budget" />
           ) : budget && budget.items.length > 0 ? (
@@ -257,6 +270,8 @@ function MonthBar({
 }
 
 function SummaryStrip({ budget, isMobile }: { budget: BudgetMonth; isMobile?: boolean }) {
+  const unbudgetedTotal = budget.unbudgeted.reduce((sum, u) => sum + u.spent_paise, 0);
+
   const metrics = [
     {
       label: "Total Budget",
@@ -266,7 +281,7 @@ function SummaryStrip({ budget, isMobile }: { budget: BudgetMonth; isMobile?: bo
       blur: true,
     },
     {
-      label: "Spent",
+      label: "Budgeted Spend",
       value: formatMoney(budget.summary.spent_paise),
       color: "var(--red)",
       sub: null,
@@ -280,10 +295,18 @@ function SummaryStrip({ budget, isMobile }: { budget: BudgetMonth; isMobile?: bo
       blur: true,
     },
     {
+      label: "Unbudgeted",
+      value: unbudgetedTotal > 0 ? formatMoney(unbudgetedTotal) : "—",
+      color: unbudgetedTotal > 0 ? "var(--accent)" : "var(--text3)",
+      sub: unbudgetedTotal > 0 ? `${budget.unbudgeted.length} categories` : null,
+      blur: unbudgetedTotal > 0,
+    },
+    {
       label: "% Used",
       value: formatPct(budget.summary.used_pct),
       color: "var(--accent)",
       sub: `expected: ${formatPct(budget.summary.expected_pct)}`,
+      blur: false,
     },
   ];
 
@@ -1013,7 +1036,7 @@ const elapsedStyle: CSSProperties = {
 
 const summaryGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+  gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
   gap: 1,
   background: "var(--border)",
   borderBottom: "1px solid var(--border)",

@@ -4,6 +4,7 @@ pub mod budget;
 pub mod categories;
 pub mod fx_rates;
 pub mod goals;
+pub mod insights;
 pub mod instruments;
 pub mod investments;
 pub mod transactions;

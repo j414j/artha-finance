@@ -3,13 +3,16 @@ import type { CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 import { getAccounts } from '../api/accounts'
 import { getBudget, getBudgetHistory } from '../api/budget'
+import { getInsights } from '../api/insights'
 import { getTransactions } from '../api/transactions'
 import type { AccountsResponse } from '../types/account'
 import type { BudgetHistory, BudgetItem, BudgetMonth, SavingsRatePoint } from '../types/budget'
+import type { Insight } from '../types/insights'
 import type { Transaction } from '../types/transaction'
 import { formatMoney } from '../utils/format'
 import { useIsMobile } from '../hooks/useIsMobile'
 import BlurredValue from '../components/BlurredValue'
+import InsightsPanel from '../components/InsightsPanel'
 
 const SHORT_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
@@ -156,12 +159,15 @@ export default function DashboardPage() {
   const [budget, setBudget] = useState<BudgetMonth | null>(null)
   const [recentTxs, setRecentTxs] = useState<Transaction[]>([])
   const [history, setHistory] = useState<BudgetHistory | null>(null)
+  const [insights, setInsights] = useState<Insight[]>([])
+  const [insightsLoading, setInsightsLoading] = useState(true)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   useEffect(() => {
     const { year, month } = currentPeriod()
     setLoading(true)
+    setInsightsLoading(true)
     Promise.all([
       getAccounts(),
       getBudget(year, month),
@@ -176,6 +182,11 @@ export default function DashboardPage() {
       })
       .catch(e => setError(e?.message ?? 'Failed to load dashboard'))
       .finally(() => setLoading(false))
+
+    getInsights(year, month)
+      .then(r => setInsights(r.insights))
+      .catch(() => setInsights([]))
+      .finally(() => setInsightsLoading(false))
   }, [])
 
   if (loading) {
@@ -488,6 +499,13 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {/* ── Insights ── */}
+        {(insightsLoading || insights.length > 0) && (
+          <div style={card}>
+            <InsightsPanel insights={insights} loading={insightsLoading} />
+          </div>
+        )}
+
         {/* ── Recent Transactions ── */}
         <div style={card}>
           <div style={cardHd}>
@@ -681,6 +699,13 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Insights ── */}
+      {(insightsLoading || insights.length > 0) && (
+        <div style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg2)', marginTop: 1 }}>
+          <InsightsPanel insights={insights} loading={insightsLoading} />
+        </div>
+      )}
 
       {/* ── Body panels ── */}
       <div

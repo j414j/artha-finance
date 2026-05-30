@@ -141,12 +141,24 @@ async fn account_balance_history(
         daily_end.insert(row.date.clone(), running_balance);
     }
 
+    // Anchor the entire curve to the current known balance (balance_paise).
+    // Without this, histories go negative when opening_balance was set at account-creation
+    // time but historical transactions have since been imported further back in time.
+    // We shift every computed point uniformly so the curve's endpoint equals balance_paise.
+    let anchor_offset = account.balance_paise - running_balance;
+    if anchor_offset != 0 {
+        for v in daily_end.values_mut() {
+            *v += anchor_offset;
+        }
+    }
+    let synthetic_opening = account.opening_balance_paise + anchor_offset;
+
     let window_start_str = window_start.format("%Y-%m-%d").to_string();
     let seed = daily_end
         .range(..window_start_str)
         .last()
         .map(|(_, &b)| b)
-        .unwrap_or(account.opening_balance_paise);
+        .unwrap_or(synthetic_opening);
 
     let mut prev = seed;
     let mut series: Vec<Value> = Vec::with_capacity(days as usize);
