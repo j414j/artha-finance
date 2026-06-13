@@ -18,9 +18,15 @@ export interface ValueHistoryPoint {
   value_paise: number;
 }
 
+export interface PriceHistoryPoint {
+  date: string;
+  price_paise: number;
+}
+
 export interface HoldingDrilldown {
   xirr_pct: number | null;
   value_history: ValueHistoryPoint[];
+  price_history: PriceHistoryPoint[];
   buy_lots: BuyLot[];
 }
 
@@ -62,6 +68,8 @@ export interface PortfolioHistoryPoint {
   date: string;
   value_paise: number;
   invested_paise: number;
+  unrealised_pnl_paise: number;
+  cumulative_realised_pnl_paise: number;
 }
 
 export interface HoldingXirr {

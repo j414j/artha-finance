@@ -57,7 +57,7 @@ async fn get_account(
     view["inr_value_paise"] = json!(cash_inr_paise);
 
     if is_investment_account(&account.account_type) {
-        let holdings = compute_holdings(&state.db, &user.id, Some(&id)).await?;
+        let (holdings, _) = compute_holdings(&state.db, &user.id, Some(&id)).await?;
         let mut holdings_paise: i64 = 0;
         let mut holdings_inr_paise: i64 = 0;
         for h in &holdings {
@@ -172,7 +172,7 @@ async fn account_balance_history(
 
     // For investment accounts, augment each point with cash/holdings/total breakdown
     if is_investment_account(&account.account_type) {
-        let holdings = compute_holdings(&state.db, &user.id, Some(&id)).await?;
+        let (holdings, _) = compute_holdings(&state.db, &user.id, Some(&id)).await?;
 
         // Build current price map per instrument (latest snapshot, fallback to avg buy price)
         let price_map: BTreeMap<String, i64> = holdings
@@ -657,7 +657,7 @@ async fn fetch_active_accounts_with_latest_inr(
 ) -> Result<Vec<Account>> {
     let mut accounts = fetch_active_accounts(pool, user_id).await?;
     let fx_rates = FxRateMap::latest_for_user(pool, user_id).await?;
-    let holdings = compute_holdings(pool, user_id, None).await?;
+    let (holdings, _) = compute_holdings(pool, user_id, None).await?;
 
     for account in &mut accounts {
         let cash_balance_paise = account.balance_paise;

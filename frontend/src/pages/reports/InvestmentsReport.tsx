@@ -7,12 +7,15 @@ import {
   Bar,
   AreaChart,
   Area,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   Cell,
   Legend,
+  ReferenceLine,
 } from 'recharts'
 import {
   getHoldings,
@@ -289,6 +292,17 @@ export default function InvestmentsReport() {
     [filteredHistory],
   )
 
+  const pnlHistoryChartData = useMemo(
+    () =>
+      filteredHistory.map((p) => ({
+        date: fmtChartDate(p.date),
+        unrealised: p.unrealised_pnl_paise,
+        realised: p.cumulative_realised_pnl_paise,
+        total: p.unrealised_pnl_paise + p.cumulative_realised_pnl_paise,
+      })),
+    [filteredHistory],
+  )
+
   // Allocation donuts
   const typeSegments = useMemo(() => {
     const groups = new Map<string, number>()
@@ -522,7 +536,86 @@ export default function InvestmentsReport() {
         )}
       </div>
 
-      {/* ── Section 3: Allocation Analysis ── */}
+      {/* ── Section 3: P&L History ── */}
+      <div style={sectionStyle}>
+        <SectionHeader
+          title="P&L History"
+          right={
+            <PeriodTabs
+              options={[
+                { key: '3m', label: '3M' },
+                { key: '6m', label: '6M' },
+                { key: '1y', label: '1Y' },
+                { key: 'all', label: 'All' },
+              ]}
+              value={historyPeriod}
+              onChange={setHistoryPeriod}
+            />
+          }
+        />
+        {pnlHistoryChartData.length === 0 ? (
+          <div style={emptyChartStyle}>No price snapshots yet</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={pnlHistoryChartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e2535" />
+              <XAxis
+                dataKey="date"
+                tick={{ fill: 'var(--text3)', fontSize: 9, fontFamily: 'IBM Plex Mono' }}
+                tickLine={false}
+                axisLine={false}
+              />
+              <YAxis
+                tick={{ fill: 'var(--text3)', fontSize: 9, fontFamily: 'IBM Plex Mono' }}
+                tickLine={false}
+                axisLine={false}
+                width={72}
+                tickFormatter={(v) => formatMoney(v, 'INR', true)}
+              />
+              <ReferenceLine y={0} stroke="var(--border2)" strokeDasharray="4 2" />
+              <Tooltip content={<MoneyTooltip />} />
+              <Legend
+                wrapperStyle={{
+                  fontFamily: 'var(--font-cond)',
+                  fontSize: 9,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                }}
+              />
+              <Line
+                type="monotone"
+                dataKey="unrealised"
+                name="Unrealised P&L"
+                stroke="var(--blue)"
+                strokeWidth={1.5}
+                dot={false}
+                activeDot={{ r: 3 }}
+              />
+              <Line
+                type="monotone"
+                dataKey="realised"
+                name="Realised P&L"
+                stroke="var(--accent)"
+                strokeWidth={1.5}
+                dot={false}
+                activeDot={{ r: 3 }}
+              />
+              <Line
+                type="monotone"
+                dataKey="total"
+                name="Total P&L"
+                stroke="var(--green)"
+                strokeWidth={2}
+                dot={false}
+                activeDot={{ r: 3 }}
+                strokeDasharray="5 2"
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      {/* ── Section 4: Allocation Analysis ── */}
       <div style={sectionStyle}>
         <SectionHeader title="Allocation Analysis" />
 
@@ -619,7 +712,7 @@ export default function InvestmentsReport() {
         </div>
       </div>
 
-      {/* ── Section 4: Performance Ranking ── */}
+      {/* ── Section 5: Performance Ranking ── */}
       <div style={sectionStyle}>
         <SectionHeader
           title="Performance Ranking"
@@ -704,7 +797,7 @@ export default function InvestmentsReport() {
         )}
       </div>
 
-      {/* ── Section 5: Dividend Income ── */}
+      {/* ── Section 6: Dividend Income ── */}
       <div style={sectionStyle}>
         <SectionHeader
           title="Dividend Income"
@@ -752,7 +845,7 @@ export default function InvestmentsReport() {
         )}
       </div>
 
-      {/* ── Section 6: Data Quality ── */}
+      {/* ── Section 7: Data Quality ── */}
       <div style={sectionStyle}>
         <SectionHeader title="Price Data Quality" />
         <div style={{ overflowX: 'auto' }}>

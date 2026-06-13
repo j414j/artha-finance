@@ -135,7 +135,7 @@ async fn list_holdings(
     AuthUser(user): AuthUser,
     Query(q): Query<HoldingsQuery>,
 ) -> Result<Json<Value>> {
-    let holdings = compute_holdings(&state.db, &user.id, q.account_id.as_deref()).await?;
+    let (holdings, _) = compute_holdings(&state.db, &user.id, q.account_id.as_deref()).await?;
     Ok(Json(json!({ "holdings": holdings })))
 }
 
@@ -145,15 +145,12 @@ async fn holdings_summary(
     AuthUser(user): AuthUser,
     Query(q): Query<HoldingsQuery>,
 ) -> Result<Json<Value>> {
-    let holdings = compute_holdings(&state.db, &user.id, q.account_id.as_deref()).await?;
+    let (holdings, total_realised_pnl_paise) =
+        compute_holdings(&state.db, &user.id, q.account_id.as_deref()).await?;
 
     let total_invested_paise: i64 = holdings
         .iter()
         .filter_map(|h| h.invested_value_inr_paise)
-        .sum();
-    let total_realised_pnl_paise: i64 = holdings
-        .iter()
-        .filter_map(|h| h.realised_pnl_inr_paise)
         .sum();
     let holdings_count = holdings.len();
 
@@ -207,11 +204,12 @@ async fn holdings_summary(
 // Core computation
 // ---------------------------------------------------------------------------
 
+/// Returns (open holdings, total_realised_pnl_inr_paise including fully-closed positions)
 pub(crate) async fn compute_holdings(
     pool: &SqlitePool,
     user_id: &str,
     account_id: Option<&str>,
-) -> Result<Vec<HoldingView>> {
+) -> Result<(Vec<HoldingView>, i64)> {
     let rows: Vec<InvestmentTransactionRow> = match account_id {
         Some(aid) => {
             sqlx::query_as::<_, InvestmentTransactionRow>(
@@ -355,11 +353,15 @@ pub(crate) async fn compute_holdings(
     }
 
     let mut holdings: Vec<HoldingView> = Vec::with_capacity(accumulators.len());
+    let mut total_realised_pnl_inr: i64 = 0;
 
     for row in accumulators.into_values() {
+        // Accumulate realised P&L from ALL positions, including fully-closed ones
+        total_realised_pnl_inr += row.realised_pnl_inr_paise.unwrap_or(0);
+
         let quantity_from_transactions = row.bought_quantity - row.sold_quantity;
         if quantity_from_transactions <= 0.0001 {
-            continue;
+            continue; // Exclude closed positions from the holdings list, but P&L already counted
         }
 
         let ca_delta: f64 = sqlx::query_scalar::<_, f64>(
@@ -498,7 +500,7 @@ pub(crate) async fn compute_holdings(
         });
     }
 
-    Ok(holdings)
+    Ok((holdings, total_realised_pnl_inr))
 }
 
 fn add_optional_paise(current: Option<i64>, next: Option<i64>) -> Option<i64> {
@@ -768,8 +770,9 @@ async fn holding_drilldown(
     }
 
     Ok(Json(json!({
-        "xirr_pct": xirr_pct.map(|r| (r * 10000.0).round() / 100.0),  // round to 2dp
+        "xirr_pct": xirr_pct.map(|r| (r * 10000.0).round() / 100.0),
         "value_history": value_history,
+        "price_history": price_history.iter().map(|p| json!({ "date": p.date, "price_paise": p.price_paise })).collect::<Vec<_>>(),
         "buy_lots": buy_lots,
     })))
 }
@@ -790,6 +793,8 @@ struct PortfolioHistoryPoint {
     date: String,
     value_paise: i64,
     invested_paise: i64,
+    unrealised_pnl_paise: i64,
+    cumulative_realised_pnl_paise: i64,
 }
 
 #[derive(Debug, FromRow)]
@@ -876,6 +881,7 @@ async fn portfolio_history(
         instrument_id: String,
         account_id: String,
         quantity: f64,
+        inr_proceeds: Option<i64>,
     }
 
     let mut buy_entries: Vec<BuyEntry> = Vec::new();
@@ -902,11 +908,23 @@ async fn portfolio_history(
                 inr_cost: inr,
             });
         } else {
+            // Net proceeds after fees, converted to INR
+            let gross = (tx.quantity * tx.price_per_unit_paise as f64).round() as i64 - tx.fees_paise;
+            let inr = convert_to_inr_on_or_latest(
+                pool,
+                &user.id,
+                &fx_rates,
+                &tx.instrument_currency,
+                gross,
+                &tx.date,
+            )
+            .await?;
             sell_entries.push(SellEntry {
                 date: tx.date.clone(),
                 instrument_id: tx.instrument_id.clone(),
                 account_id: tx.account_id.clone(),
                 quantity: tx.quantity,
+                inr_proceeds: inr,
             });
         }
     }
@@ -929,12 +947,14 @@ async fn portfolio_history(
             .insert(snap.date.clone(), snap.price_paise);
     }
 
-    // All distinct snapshot dates, sorted
+    // All distinct snapshot dates, sorted, always ending with today so the chart is current
     let snapshot_dates: Vec<String> = {
         let mut set = std::collections::BTreeSet::new();
         for s in &snaps {
             set.insert(s.date.clone());
         }
+        let today = chrono::Local::now().date_naive().to_string();
+        set.insert(today);
         set.into_iter().collect()
     };
 
@@ -948,6 +968,7 @@ async fn portfolio_history(
     let mut holding_state: BTreeMap<(String, String), HoldingState> = BTreeMap::new();
     let mut buy_idx = 0usize;
     let mut sell_idx = 0usize;
+    let mut cumulative_realised_pnl: i64 = 0;
     let mut result: Vec<PortfolioHistoryPoint> = Vec::with_capacity(snapshot_dates.len());
 
     for date in &snapshot_dates {
@@ -970,56 +991,72 @@ async fn portfolio_history(
             buy_idx += 1;
         }
 
-        // Advance sell entries
+        // Advance sell entries and accumulate realised P&L
         while sell_idx < sell_entries.len()
             && sell_entries[sell_idx].date.as_str() <= date.as_str()
         {
             let e = &sell_entries[sell_idx];
             if let Some(state) = holding_state.get_mut(&(e.instrument_id.clone(), e.account_id.clone())) {
+                // Prorated INR cost for the quantity being sold (AVCO method)
+                let prorated_cost_inr = state.total_buy_cost_inr.map(|total_cost| {
+                    if state.bought_qty > 0.0 {
+                        ((total_cost as f64 / state.bought_qty) * e.quantity).round() as i64
+                    } else {
+                        0
+                    }
+                });
+                if let (Some(proceeds), Some(cost)) = (e.inr_proceeds, prorated_cost_inr) {
+                    cumulative_realised_pnl += proceeds - cost;
+                }
                 state.sold_qty += e.quantity;
             }
             sell_idx += 1;
         }
 
-        // Compute value and cost basis only for holdings that have a price at this date.
-        // Keeping both metrics on the same instrument set ensures they are directly comparable.
         let mut total_value: i64 = 0;
         let mut total_invested: i64 = 0;
-        let mut has_value = false;
+        let mut has_holdings = false;
 
         for ((instrument_id, _), state) in &holding_state {
             let remaining = state.bought_qty - state.sold_qty;
             if remaining <= 0.0001 {
                 continue;
             }
+            has_holdings = true;
 
-            // Latest price on or before this date
+            // INR cost basis prorated to remaining qty
+            let cost_basis_inr = state.total_buy_cost_inr.map(|total_cost| {
+                if state.bought_qty > 0.0 {
+                    ((total_cost as f64 / state.bought_qty) * remaining).round() as i64
+                } else {
+                    0
+                }
+            });
+
+            // Always include invested amount regardless of price availability
+            if let Some(cost_basis) = cost_basis_inr {
+                total_invested += cost_basis;
+            }
+
+            // Latest price on or before this date (carry-forward)
             let price = price_map
                 .get(instrument_id)
                 .and_then(|m| m.range(..=date.clone()).next_back().map(|(_, &p)| p));
 
-            if let Some(p) = price {
-                // Portfolio value
-                let value_native = (remaining * p as f64).round() as i64;
-                let value_inr = fx_rates
-                    .convert_to_inr_paise(&state.currency, value_native)
-                    .unwrap_or(value_native);
-                total_value += value_inr;
-
-                // Cost basis prorated to remaining qty (matches holdings/summary definition)
-                if let Some(total_cost) = state.total_buy_cost_inr {
-                    if state.bought_qty > 0.0 {
-                        let cost_basis =
-                            ((total_cost as f64 / state.bought_qty) * remaining).round() as i64;
-                        total_invested += cost_basis;
-                    }
+            let value_inr = match price {
+                Some(p) => {
+                    let value_native = (remaining * p as f64).round() as i64;
+                    fx_rates
+                        .convert_to_inr_paise(&state.currency, value_native)
+                        .unwrap_or(value_native)
                 }
-
-                has_value = true;
-            }
+                // No price snapshot: use INR cost basis as proxy (same as holdings page fallback)
+                None => cost_basis_inr.unwrap_or(0),
+            };
+            total_value += value_inr;
         }
 
-        if !has_value {
+        if !has_holdings {
             continue;
         }
 
@@ -1027,6 +1064,8 @@ async fn portfolio_history(
             date: date.clone(),
             value_paise: total_value,
             invested_paise: total_invested,
+            unrealised_pnl_paise: total_value - total_invested,
+            cumulative_realised_pnl_paise: cumulative_realised_pnl,
         });
     }
 
@@ -1066,7 +1105,7 @@ async fn xirr_summary(
     let today = chrono::Local::now().date_naive().to_string();
 
     // Holdings for current values
-    let holdings = compute_holdings(pool, &user.id, account_id).await?;
+    let (holdings, _) = compute_holdings(pool, &user.id, account_id).await?;
 
     // All buy transactions
     let buy_rows: Vec<XirrBuyRow> = match account_id {

@@ -3,13 +3,16 @@ import type { CSSProperties } from "react";
 import {
   Area,
   AreaChart,
+  ComposedChart,
+  Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
 import { getHoldingDrilldown } from "../api/investments";
-import type { BuyLot, HoldingDrilldown, Holding, ValueHistoryPoint } from "../types/investment";
+import type { BuyLot, HoldingDrilldown, Holding, ValueHistoryPoint, PriceHistoryPoint } from "../types/investment";
 import { formatDateDisplay, formatMoney } from "../utils/format";
 
 const PERIODS = [
@@ -42,6 +45,14 @@ function fmtPct(v: number | null, decimals = 2): string {
 }
 
 function filterByPeriod(history: ValueHistoryPoint[], days: number): ValueHistoryPoint[] {
+  if (days === 0 || history.length === 0) return history;
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  return history.filter((p) => p.date >= cutoffStr);
+}
+
+function filterByPeriodPrice(history: PriceHistoryPoint[], days: number): PriceHistoryPoint[] {
   if (days === 0 || history.length === 0) return history;
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - days);
@@ -82,6 +93,9 @@ export default function HoldingDrilldown({
 
   const allHistory = drilldown?.value_history ?? [];
   const filteredHistory = filterByPeriod(allHistory, period);
+
+  const allPriceHistory = drilldown?.price_history ?? [];
+  const filteredPriceHistory = filterByPeriodPrice(allPriceHistory, period);
 
   const chartValues = filteredHistory.map((p) => p.value_paise);
   const minVal = chartValues.length ? Math.min(...chartValues) : 0;
@@ -278,6 +292,123 @@ export default function HoldingDrilldown({
               </div>
             )}
           </div>
+
+          {/* Price history chart */}
+          {filteredPriceHistory.length > 0 && (() => {
+            const avgCost = holding.avg_cost_per_unit_paise;
+            const prices = filteredPriceHistory.map((p) => p.price_paise);
+            const rawMin = Math.min(...prices);
+            const rawMax = Math.max(...prices);
+            const domainMin = Math.floor(Math.min(rawMin, avgCost) * 0.98);
+            const domainMax = Math.ceil(Math.max(rawMax, avgCost) * 1.02);
+            const minP = domainMin;
+            const maxP = domainMax;
+
+            // SVG gradients use objectBoundingBox by default, so the offset must be relative
+            // to the bounding box of the element it's applied to, NOT the full chart height.
+            //
+            // Stroke bounding box: [rawMin, rawMax] (the price data range)
+            // Fill bounding box:   [domainMin, rawMax] (data top → chart baseline)
+            //
+            // offset = fraction from TOP (y=0 in gradient = high price = chart top)
+            const strokeGradOffset = rawMax > rawMin
+              ? Math.max(0, Math.min(1, (rawMax - avgCost) / (rawMax - rawMin)))
+              : 0.5;
+            const fillGradOffset = rawMax > domainMin
+              ? Math.max(0, Math.min(1, (rawMax - avgCost) / (rawMax - domainMin)))
+              : 0.5;
+            const gradId = `priceGrad-${holding.instrument_id}`;
+            const currency = holding.instrument_currency;
+            return (
+              <div style={{ borderBottom: "1px solid var(--border)" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 14px 4px" }}>
+                  <span style={metaLabelStyle}>Price History</span>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--text3)" }}>
+                    avg entry {formatMoney(avgCost, currency)}
+                  </span>
+                </div>
+                <div style={{ padding: "0 0 4px" }}>
+                  <ResponsiveContainer width="100%" height={130}>
+                    <ComposedChart data={filteredPriceHistory} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id={`${gradId}-fill`} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset={0} stopColor="var(--green)" stopOpacity={0.18} />
+                          <stop offset={fillGradOffset} stopColor="var(--green)" stopOpacity={0.18} />
+                          <stop offset={fillGradOffset} stopColor="var(--red)" stopOpacity={0.18} />
+                          <stop offset={1} stopColor="var(--red)" stopOpacity={0.18} />
+                        </linearGradient>
+                        <linearGradient id={`${gradId}-stroke`} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset={0} stopColor="var(--green)" stopOpacity={1} />
+                          <stop offset={strokeGradOffset} stopColor="var(--green)" stopOpacity={1} />
+                          <stop offset={strokeGradOffset} stopColor="var(--red)" stopOpacity={1} />
+                          <stop offset={1} stopColor="var(--red)" stopOpacity={1} />
+                        </linearGradient>
+                      </defs>
+                      <XAxis
+                        dataKey="date"
+                        tickFormatter={formatChartDate}
+                        tick={{ fontSize: 8, fill: "var(--text3)", fontFamily: "var(--font-mono)" }}
+                        tickLine={false}
+                        axisLine={false}
+                        interval="preserveStartEnd"
+                      />
+                      <YAxis
+                        domain={[Math.floor(minP), Math.ceil(maxP)]}
+                        tickFormatter={(v) => formatMoney(v, currency, true)}
+                        tick={{ fontSize: 8, fill: "var(--text3)", fontFamily: "var(--font-mono)" }}
+                        tickLine={false}
+                        axisLine={false}
+                        width={64}
+                      />
+                      <ReferenceLine
+                        y={avgCost}
+                        stroke="var(--accent)"
+                        strokeDasharray="4 3"
+                        strokeWidth={1.5}
+                        label={{
+                          value: "Avg",
+                          position: "insideTopRight",
+                          fill: "var(--accent)",
+                          fontSize: 8,
+                          fontFamily: "var(--font-cond)",
+                        }}
+                      />
+                      <Tooltip
+                        content={({ active, payload }) => {
+                          if (!active || !payload?.length) return null;
+                          const point = payload[0].payload as PriceHistoryPoint;
+                          const price = point.price_paise;
+                          const above = price >= avgCost;
+                          return (
+                            <div style={tooltipStyle}>
+                              <div style={{ color: "var(--text3)", fontSize: 9, fontFamily: "var(--font-cond)", letterSpacing: "0.08em", marginBottom: 3 }}>
+                                {formatDateDisplay(point.date)}
+                              </div>
+                              <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: above ? "var(--green)" : "var(--red)" }}>
+                                {formatMoney(price, currency)}
+                              </div>
+                              <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: above ? "var(--green)" : "var(--red)", marginTop: 2 }}>
+                                {above ? "+" : ""}{formatMoney(price - avgCost, currency, true)} vs avg
+                              </div>
+                            </div>
+                          );
+                        }}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="price_paise"
+                        stroke={`url(#${gradId}-stroke)`}
+                        strokeWidth={1.5}
+                        fill={`url(#${gradId}-fill)`}
+                        dot={false}
+                        activeDot={{ r: 3 }}
+                      />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Buy lots */}
           <div style={sectionStyle}>
