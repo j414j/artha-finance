@@ -48,11 +48,11 @@ const REPORT_CARDS: ReportCard[] = [
     icon: '▦',
     title: 'Budget Reports',
     bullets: [
-      'Budget vs actual chart per category',
-      'Budget history table (last 12 months)',
-      'Savings rate trend over time',
+      'Category heat map — used % across months at a glance',
+      'Savings rate trend with income vs expense bars',
+      'Monthly spend vs budget totals chart',
     ],
-    available: false,
+    available: true,
   },
   {
     route: '/reports/investments',
@@ -70,11 +70,11 @@ const REPORT_CARDS: ReportCard[] = [
     icon: '◎',
     title: 'Savings Goals',
     bullets: [
-      'Goals progress overview',
-      'Blocking history & monthly rate chart',
-      'Projected completion dates',
+      'Detailed progress cards with projected completion',
+      'Funded vs remaining chart across all goals',
+      'Completed goals history & account capacity table',
     ],
-    available: false,
+    available: true,
   },
 ]
 
