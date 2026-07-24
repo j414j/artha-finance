@@ -100,6 +100,7 @@ Key decisions: multi-user from Phase 1 with per-user private data (all domain ta
   - [x] SpendingReport — summary 2-col, all panels stack
   - [x] InvestmentsReport — metrics 2-col, allocation single column
   - [ ] Polish & testing — gestures, safe area insets, loading states review
+  - [x] PWA — installable app (manifest, icons, service worker via vite-plugin-pwa). Custom "A" monogram logo in frontend/branding/logo-source.svg (raster source of truth); regenerate icons with `node frontend/branding/generate-icons.mjs`. API responses are never cached by the service worker (financial data always network-fresh) — only static app shell + Google Fonts.
 
 ## graphify
 

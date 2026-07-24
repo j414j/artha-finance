@@ -1,0 +1,35 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#161b26"/>
+      <stop offset="100%" stop-color="#0a0c0f"/>
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f7bb33"/>
+      <stop offset="55%" stop-color="#f0a500"/>
+      <stop offset="100%" stop-color="#e8860a"/>
+    </linearGradient>
+    <linearGradient id="greenGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#00e0a8"/>
+      <stop offset="100%" stop-color="#00c896"/>
+    </linearGradient>
+  </defs>
+
+  <!-- tile -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)"/>
+  <rect x="4" y="4" width="504" height="504" rx="108" fill="none" stroke="#252f42" stroke-width="2" opacity="0.6"/>
+
+  <!-- A monogram: two peak strokes -->
+  <path d="M 152 392 L 256 122 L 360 392"
+        fill="none"
+        stroke="url(#accentGrad)"
+        stroke-width="46"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+
+  <!-- apex data point -->
+  <circle cx="256" cy="122" r="15" fill="#ffd166"/>
+
+  <!-- crossbar / ledger line -->
+  <rect x="196" y="281" width="120" height="30" rx="15" fill="url(#greenGrad)"/>
+</svg>
